@@ -27,3 +27,13 @@ class AnalyzeResponse(BaseModel):
     charts: List[Chart]
     keywords: List[str]
     insights: List[Insight]
+
+class ChatMessage(BaseModel):
+    question: str
+    run_id: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    answer: str
+    visualizations: Optional[List[Chart]] = None
+    suggested_actions: Optional[List[dict]] = None
+    citations: Optional[List[str]] = None
