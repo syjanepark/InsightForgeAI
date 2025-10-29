@@ -117,6 +117,9 @@ class QueryAgent(QueryAgentMethods):
         elif any(word in question_lower for word in ['average', 'mean', 'total', 'sum', 'count', 'statistics']):
             intent['type'] = 'aggregate'
             intent['action'] = 'calculate'
+        elif any(word in question_lower for word in ['should', 'how to', 'what to do', 'improve', 'increase', 'strategy', 'recommend', 'boost', 'grow']):
+            intent['type'] = 'strategy'
+            intent['action'] = 'recommend'
         elif any(phrase in question_lower for phrase in ['what does', 'meaning', 'explain', 'interpret']):
             intent['type'] = 'explanation'
             intent['action'] = 'explain'
@@ -151,6 +154,8 @@ class QueryAgent(QueryAgentMethods):
                 return self._handle_comparison(question, query_intent, df, dataset_info)
             elif query_intent['type'] == 'aggregate':
                 return self._handle_aggregation(question, query_intent, df, dataset_info)
+            elif query_intent['type'] == 'strategy':
+                return self._handle_strategy_question(question, query_intent, df, dataset_info)
             elif query_intent['type'] == 'explanation':
                 return self._handle_explanation(question, query_intent, df, dataset_info)
             elif query_intent['type'] == 'display':

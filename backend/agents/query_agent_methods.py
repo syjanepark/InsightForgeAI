@@ -30,10 +30,21 @@ class QueryAgentMethods:
                 if role_cols:
                     return self._handle_department_ranking(question, df, role_cols[0])
             
-            return {
-                "answer": f"I couldn't identify which columns to rank. Your dataset has: {', '.join(df.columns[:10])}. Could you specify which column you'd like me to rank by?",
-                "visualizations": None
-            }
+            # Smart inference for common question patterns
+            relevant_cols = self._infer_ranking_columns(question_lower, df, dataset_info)
+            
+            if not relevant_cols:
+                return {
+                    "answer": f"I couldn't identify which columns to rank. Your dataset has: {', '.join(df.columns[:10])}. Could you specify which column you'd like me to rank by?",
+                    "visualizations": None
+                }
+        
+        # Handle special case: geographic questions with year filtering
+        question_lower = question.lower()
+        import re
+        years = re.findall(r'\b(19|20)\d{2}\b', question_lower)
+        if years and any(term in question_lower for term in ['country', 'region', 'nation']):
+            return self._handle_geographic_year_question(question, df, years[0], relevant_cols)
         
         # Find categorical column for grouping
         grouping_col = self._find_grouping_column(df, dataset_info)
@@ -384,6 +395,137 @@ class QueryAgentMethods:
         }
     
     # Helper methods
+    def _infer_ranking_columns(self, question_lower: str, df: pd.DataFrame, dataset_info: Dict) -> List[str]:
+        """Analyze question intent and identify the most relevant metrics for ranking"""
+        
+        # For ranking questions, we need numeric columns that represent measurable outcomes
+        numeric_cols = dataset_info.get('numeric_columns', [])
+        if not numeric_cols:
+            return []
+        
+        # Analyze numeric columns to find the most relevant ones
+        ranking_cols = []
+        
+        # Prioritize columns based on statistical significance and variance
+        for col in numeric_cols:
+            col_data = df[col].dropna()
+            if len(col_data) > 1:
+                # Calculate coefficient of variation (std/mean) to find columns with meaningful variation
+                if col_data.mean() != 0:
+                    cv = col_data.std() / abs(col_data.mean())
+                    # Prefer columns with moderate to high variation (indicates meaningful differences)
+                    if cv > 0.1:  # More than 10% variation
+                        ranking_cols.append((col, cv))
+        
+        # Sort by coefficient of variation and return top candidates
+        ranking_cols.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return top 3 most variable numeric columns
+        return [col[0] for col in ranking_cols[:3]]
+    
+    def _handle_strategy_question(self, question: str, intent: Dict, df: pd.DataFrame, dataset_info: Dict) -> Dict[str, Any]:
+        """Handle strategic business questions using generic statistical analysis"""
+        
+        try:
+            from agents.generic_strategy_handler import GenericStrategyHandler
+            handler = GenericStrategyHandler()
+            return handler.handle_strategy_question(question, df)
+        except Exception as e:
+            return {
+                "answer": f"I can help with strategic analysis, but need to examine your data patterns first. What specific metrics would you like to improve? (Analysis error: {str(e)})",
+                "visualizations": None
+            }
+    
+    def _handle_geographic_year_question(self, question: str, df: pd.DataFrame, year: str, relevant_cols: List[str]) -> Dict[str, Any]:
+        """Analyze data for a specific time period to identify top-performing segments"""
+        
+        try:
+            # Find temporal column (year, date, period, etc.)
+            temporal_cols = [col for col in df.columns if df[col].dtype in ['int64', 'int32'] and 
+                           (df[col].min() >= 1900 and df[col].max() <= 2100)]  # Likely year column
+            if not temporal_cols:
+                temporal_cols = [col for col in df.columns if 'year' in col.lower() or 'date' in col.lower()]
+            
+            if not temporal_cols:
+                return {
+                    "answer": f"I couldn't identify a time-based column to filter by {year}.",
+                    "visualizations": None
+                }
+            
+            temporal_col = temporal_cols[0]
+            
+            # Filter data by the specified year
+            try:
+                filtered_df = df[df[temporal_col] == int(year)]
+            except:
+                # Try string matching if numeric doesn't work
+                filtered_df = df[df[temporal_col].astype(str).str.contains(year)]
+            
+            if len(filtered_df) == 0:
+                return {
+                    "answer": f"No records found for {year} in the dataset.",
+                    "visualizations": None
+                }
+            
+            # Use the identified relevant columns for analysis
+            if not relevant_cols:
+                return {
+                    "answer": f"Found {len(filtered_df)} records for {year}, but no suitable metrics for comparison.",
+                    "visualizations": None
+                }
+            
+            # Analyze the numeric metrics for this time period
+            metric_col = relevant_cols[0]  # Use the top-ranked metric
+            
+            # Group by available categorical columns to find segments
+            categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and 
+                              df[col].nunique() < 50]  # Reasonable number of categories
+            
+            if not categorical_cols:
+                # If no categorical grouping available, analyze overall metrics
+                total_value = filtered_df[metric_col].sum()
+                avg_value = filtered_df[metric_col].mean()
+                
+                return {
+                    "answer": f"For {year} analysis:\n\n• Total {metric_col.replace('_', ' ').title()}: {total_value:,.2f}\n• Average {metric_col.replace('_', ' ').title()}: {avg_value:,.2f}\n• Records analyzed: {len(filtered_df):,}",
+                    "visualizations": None
+                }
+            
+            # Group by the most suitable categorical column
+            grouping_col = categorical_cols[0]
+            grouped = filtered_df.groupby(grouping_col)[metric_col].sum().sort_values(ascending=False)
+            
+            if len(grouped) == 0:
+                return {
+                    "answer": f"No meaningful groupings found in {year} data.",
+                    "visualizations": None
+                }
+            
+            # Create professional analyst response
+            top_segment = grouped.index[0]
+            top_value = grouped.iloc[0]
+            
+            answer = f"**{year} Performance Analysis:**\n\n"
+            answer += f"Leading segment: **{top_segment}** with {top_value:,.2f} in {metric_col.replace('_', ' ').title()}\n\n"
+            answer += f"Top performers in {year}:\n"
+            
+            for i, (segment, value) in enumerate(grouped.head(5).items()):
+                rank = i + 1
+                answer += f"{rank}. {segment}: {value:,.2f}\n"
+            
+            answer += f"\n*Analysis based on {len(filtered_df):,} records*"
+            
+            return {
+                "answer": answer,
+                "visualizations": None
+            }
+            
+        except Exception as e:
+            return {
+                "answer": f"Unable to complete {year} analysis. The data structure may not support this type of temporal filtering.",
+                "visualizations": None
+            }
+    
     def _find_relevant_columns(self, keywords: List[str], df: pd.DataFrame, dataset_info: Dict) -> List[str]:
         """Find columns relevant to the query keywords"""
         relevant = []
