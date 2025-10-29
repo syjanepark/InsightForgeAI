@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, ZAxis } from 'recharts';
 
 const COLORS = ['#8B7CF6', '#A78BFA', '#60A5FA', '#34D399', '#F59E0B', '#EF4444'];
 
@@ -11,7 +11,7 @@ interface ChartData {
 interface ChartProps {
   title: string;
   data: ChartData[];
-  type: 'line' | 'bar' | 'pie';
+  type: 'line' | 'bar' | 'pie' | 'scatter';
   xKey?: string;
   yKey?: string;
   delay?: number;
@@ -143,6 +143,24 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
               />
             </PieChart>
           )}
+
+          {type === 'scatter' && (
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(139, 124, 246, 0.1)" />
+              <XAxis dataKey={xKey} stroke="#312E81" fontSize={12} tick={{ fill: '#312E81' }} />
+              <YAxis dataKey={yKey} stroke="#312E81" fontSize={12} tick={{ fill: '#312E81' }} />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                  border: '1px solid rgba(139, 124, 246, 0.2)',
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 25px rgba(139, 124, 246, 0.15)',
+                  backdropFilter: 'blur(10px)'
+                }}
+              />
+              <Scatter data={data} fill="#8B7CF6" />
+            </ScatterChart>
+          )}
         </ResponsiveContainer>
       </div>
     </div>
@@ -159,5 +177,9 @@ export function BarChartComponent({ title, data, xKey, yKey, delay }: Omit<Chart
 
 export function PieChartComponent({ title, data, yKey, delay }: Omit<ChartProps, 'type' | 'xKey'>) {
   return <Chart title={title} data={data} type="pie" yKey={yKey} delay={delay} />;
+}
+
+export function ScatterChartComponent({ title, data, xKey, yKey, delay }: Omit<ChartProps, 'type'>) {
+  return <Chart title={title} data={data} type="scatter" xKey={xKey} yKey={yKey} delay={delay} />;
 }
 

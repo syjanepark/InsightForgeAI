@@ -46,7 +46,7 @@ REQUIREMENTS:
             if out and "Request failed" not in out:
                 return {
                     "answer": out,
-                    "visualizations": None,  # Simplified for now
+                    "visualizations": None,
                     "suggested_actions": None,  # Simplified for now
                     "citations": self._extract_citations(out)
                 }
@@ -55,9 +55,10 @@ REQUIREMENTS:
         
         # Intelligent local fallback with search context
         local_answer = self._create_local_analysis_with_context(question, context, df, search_context)
+        local_visuals = self._generate_visualizations(question, df)
         return {
             "answer": local_answer,
-            "visualizations": None,  # Simplified for now
+            "visualizations": local_visuals,
             "suggested_actions": None,  # Simplified for now
             "citations": self._extract_citations(search_context)
         }
@@ -106,8 +107,21 @@ REQUIREMENTS:
         time_col = self._find_time_column(df)
         value_col = self._pick_value_column(df)
 
-        # mode inference (no phrase hardcoding beyond "why" for causal)
+        # mode inference (no phrase hardcoding beyond minimal intent cues)
         mode = 'non_time_trend'
+        # pairwise correlation intent
+        pair_cols = self._extract_columns_from_question(q, df)
+        if len(pair_cols) == 2:
+            mode = 'correlation_pair'
+            return {
+                'entity_col': entity_col,
+                'entity': entity,
+                'years': years,
+                'time_col': time_col,
+                'value_col': value_col,
+                'mode': mode,
+                'pair_cols': pair_cols
+            }
         if entity and time_col and value_col:
             if len(years) >= 1:
                 mode = 'compare_years'
@@ -165,6 +179,14 @@ REQUIREMENTS:
 
         if mode == 'non_time_trend':
             return self._dataset_trends_and_correlations(df)
+
+        if mode == 'correlation_pair':
+            a, b = intent.get('pair_cols')
+            series = df[[a, b]].dropna()
+            if series.empty:
+                return f"I couldn't compute correlation; {a} and {b} have no overlapping data."
+            corr = series.corr(numeric_only=True).iloc[0,1]
+            return f"Correlation between {a} and {b}: r={corr:+.3f}."
 
         return None
 
@@ -231,6 +253,18 @@ REQUIREMENTS:
                 insights.append(f"Strongest correlation: {top[0].replace('_',' ')} vs {top[1].replace('_',' ')} (r={top[3]:+.2f})")
         return "\n".join(insights)
 
+    def _extract_columns_from_question(self, q: str, df: pd.DataFrame) -> list:
+        cols = [c for c in df.columns]
+        lower_map = {c.lower(): c for c in cols}
+        found = []
+        # direct name match
+        for name_lower, orig in lower_map.items():
+            if name_lower in q:
+                found.append(orig)
+            if len(found) == 2:
+                break
+        return found[:2]
+
     def _handle_strategy(self, df: pd.DataFrame, entity_col: str, entity: str, time_col: str, value_col: str) -> str:
         # Strategy recommendations based on correlations/segments (data-driven)
         lines = ["Strategy recommendations based on your data:"]
@@ -293,6 +327,23 @@ REQUIREMENTS:
         # Find time columns
         time_cols = [col for col in numeric_cols if any(word in col.lower() for word in ['year', 'date', 'time'])]
         
+        # Correlation request: scatter plot when two columns are referenced
+        pair_cols = self._extract_columns_from_question(question_lower, df)
+        if len(pair_cols) == 2:
+            a, b = pair_cols
+            sample = df[[a, b]].dropna()
+            if not sample.empty:
+                # downsample to reasonable size
+                if len(sample) > 1000:
+                    sample = sample.sample(1000, random_state=42)
+                points = [{ 'x': float(x), 'y': float(y) } for x, y in sample[[a, b]].to_numpy() if pd.notna(x) and pd.notna(y)]
+                visualizations.append({
+                    'type': 'scatter',
+                    'title': f'{a} vs {b}',
+                    'spec': { 'points': points }
+                })
+                return visualizations
+
         # Generate visualizations based on available data
         if entity_cols and value_cols:
             # Top entities by value

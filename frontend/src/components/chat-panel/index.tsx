@@ -13,6 +13,12 @@ export interface ChatMessage {
     action: string;
   }>;
   citations?: string[];
+  visualizations?: Array<{
+    type: 'line' | 'bar' | 'pie' | 'scatter';
+    title?: string;
+    data?: any;
+    spec?: any;
+  }>;
 }
 
 interface ChatPanelProps {
@@ -207,6 +213,22 @@ function ChatMessage({ message }: { message: ChatMessage }) {
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
+
+        {/* Visualizations */}
+        {message.visualizations && message.visualizations.length > 0 && (
+          <div className="mt-2 space-y-3">
+            {message.visualizations.map((viz, idx) => {
+              const { type } = viz;
+              const normalized = normalizeVizSpec(viz);
+              if (!normalized) return null;
+              return (
+                <div key={idx} className="glass-card p-3">
+                  <ChartWrapper title={normalized.title} type={type} data={normalized.data} />
+                </div>
+              );
+            })}
+          </div>
+        )}
         
         {/* Suggested Actions */}
         {message.suggested_actions && message.suggested_actions.length > 0 && (
@@ -245,4 +267,31 @@ function ChatMessage({ message }: { message: ChatMessage }) {
       </div>
     </div>
   );
+}
+
+function ChartWrapper({ title, type, data }: { title?: string; type: 'line' | 'bar' | 'pie' | 'scatter'; data: any[] }) {
+  const { Chart } = require('@/components/charts');
+  const xKey = type === 'pie' ? undefined : (data.length && ('x' in data[0] ? 'x' : 'name'));
+  const yKey = type === 'pie' ? 'value' : (data.length && ('y' in data[0] ? 'y' : 'value'));
+  return (
+    <Chart title={title || ''} data={data} type={type} xKey={xKey as any} yKey={yKey as any} />
+  );
+}
+
+function normalizeVizSpec(viz: any): { title?: string; data: any[] } | null {
+  // Support: {data: {labels, datasets[0].data}} or {spec.points:[{x,y}]} or direct data
+  if (viz?.data?.labels && viz?.data?.datasets?.[0]?.data) {
+    const labels = viz.data.labels as any[];
+    const values = viz.data.datasets[0].data as number[];
+    const data = labels.map((l, i) => ({ name: String(l), value: Number(values[i] || 0) }));
+    return { title: viz.title, data };
+  }
+  if (viz?.spec?.points && Array.isArray(viz.spec.points)) {
+    const data = viz.spec.points.map((p: any) => ({ x: Number(p.x), y: Number(p.y) })).filter((p: any) => !isNaN(p.x) && !isNaN(p.y));
+    return { title: viz.title, data };
+  }
+  if (Array.isArray(viz?.data)) {
+    return { title: viz.title, data: viz.data };
+  }
+  return null;
 }
