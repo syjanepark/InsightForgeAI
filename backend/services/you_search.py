@@ -19,17 +19,14 @@ def search_web(query: str, count: int = 3):
         return []
     
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "X-API-Key": API_KEY,
         "Accept": "application/json",
         "Accept-Encoding": "gzip, deflate",
         "User-Agent": "InsightForgeAI/1.0"
     }
     params = {
-        "q": query,
-        "num_web_results": count,
-        "safe_search": "Off",
-        "include_domains": "",
-        "exclude_domains": "",
+        "query": query,
+        "limit": count
     }
 
     try:
@@ -49,11 +46,12 @@ def search_web(query: str, count: int = 3):
             data = r.json()
 
         results = []
-        for item in data.get("web_results", []):
+        web_results = data.get("results", {}).get("web", [])
+        for item in web_results:
             results.append({
                 "title": item.get("title"),
                 "url": item.get("url"),
-                "snippet": item.get("snippet", "")
+                "snippet": item.get("description", "")
             })
         return results
     except Exception as e:
