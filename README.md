@@ -236,12 +236,5 @@ npm run build
 npm start
 ```
 
-## 📞 Support
-
-- **Issues**: Create GitHub issues for bugs or feature requests
-- **Questions**: Use team chat or GitHub discussions
-- **Documentation**: Check `/docs` endpoints for API reference
-
----
 
 **Built for teams who need intelligent, actionable insights from their data — not just charts and numbers.** 🚀
