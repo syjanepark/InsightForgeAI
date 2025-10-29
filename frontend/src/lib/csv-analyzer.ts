@@ -76,6 +76,7 @@ function processCSVData(data: any[]): AnalyzedData {
   }
 
   const columnTypes = analyzeColumnTypes(cleanData, headers);
+  const targetColumn = detectTargetColumn(cleanData, headers, columnTypes);
   // Prefer categorical columns with reasonable cardinality and exclude identifier-like names
   const idLike = /(^|_)(id|uuid)$|^post_id$|^author_id$|^user_id$|^session_id$|^model_signature$|embedding|signature|hash/i;
   const timeLike = /(timestamp|date|time|month|weekday)/i;
@@ -98,7 +99,7 @@ function processCSVData(data: any[]): AnalyzedData {
 
   try {
     // Generate charts based on data structure
-    const charts = generateCharts(cleanData, headers, numericColumns, textColumns);
+    const charts = generateCharts(cleanData, headers, numericColumns, textColumns, targetColumn);
     
     // Generate insights based on analysis
     const insights = generateInsights(cleanData, headers, numericColumns, textColumns, charts);
@@ -159,7 +160,13 @@ function analyzeColumnTypes(data: any[], headers: string[]): { [key: string]: 'n
   return types;
 }
 
-function generateCharts(data: any[], headers: string[], numericColumns: string[], textColumns: string[]): AnalyzedData['charts'] {
+function generateCharts(
+  data: any[], 
+  headers: string[], 
+  numericColumns: string[], 
+  textColumns: string[],
+  targetCol?: string
+): AnalyzedData['charts'] {
   const charts: AnalyzedData['charts'] = [];
 
   // Line chart - prefer time-like x-axis if available
@@ -233,6 +240,79 @@ function generateCharts(data: any[], headers: string[], numericColumns: string[]
     });
   }
 
+  // Target-aware charts (if a binary/boolean target column exists)
+  if (targetCol) {
+    // Target distribution
+    const targetCount: { [key: string]: number } = {};
+    data.forEach(row => {
+      const key = String(row[targetCol]);
+      targetCount[key] = (targetCount[key] || 0) + 1;
+    });
+    const targetPie = Object.entries(targetCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name: String(name), value }));
+    charts.push({
+      id: 'target-distribution',
+      type: 'pie',
+      title: `Distribution of ${targetCol}`,
+      data: targetPie,
+      yKey: 'value'
+    });
+
+    // Target by category (positive class emphasis)
+    if (textColumns.length > 0) {
+      const categoryColumn = pickBestCategoryColumn(data, textColumns);
+      const classes = Object.keys(targetCount);
+      const positive = pickPositiveClass(classes);
+      const agg: { [key: string]: number } = {};
+      data.forEach(row => {
+        if (String(row[targetCol]) === positive) {
+          const key = String(row[categoryColumn] ?? 'Unknown');
+          agg[key] = (agg[key] || 0) + 1;
+        }
+      });
+      const targetBar = Object.entries(agg)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([name, value]) => ({ name: String(name), value }));
+
+      charts.push({
+        id: 'target-by-category',
+        type: 'bar',
+        title: `${targetCol}=${positive} by ${categoryColumn}`,
+        data: targetBar,
+        xKey: 'name',
+        yKey: 'value'
+      });
+    }
+
+    // Target rate over time (if time-like column and numeric binary target)
+    const timeCol = pickTimeLikeColumn(headers);
+    if (timeCol) {
+      const grouped: { [key: string]: { pos: number; total: number } } = {};
+      const classes = Object.keys(targetCount);
+      const positive = pickPositiveClass(classes);
+      data.forEach(row => {
+        const t = String(row[timeCol]);
+        const isPos = String(row[targetCol]) === positive ? 1 : 0;
+        if (!grouped[t]) grouped[t] = { pos: 0, total: 0 };
+        grouped[t].pos += isPos;
+        grouped[t].total += 1;
+      });
+      const line = Object.entries(grouped)
+        .sort((a, b) => (a[0] > b[0] ? 1 : -1))
+        .map(([name, v]) => ({ name, value: v.total ? (v.pos / v.total) * 100 : 0 }));
+      charts.push({
+        id: 'target-rate-over-time',
+        type: 'line',
+        title: `${targetCol} rate over ${timeCol} (%)`,
+        data: line,
+        xKey: 'name',
+        yKey: 'value'
+      });
+    }
+  }
+
   return charts;
 }
 
@@ -268,6 +348,40 @@ function pickBestNumericForTrend(data: any[], numericColumns: string[]): string 
 function pickBestNumericForAggregation(data: any[], numericColumns: string[]): string {
   // pick stable, non-identifier numeric by variance (but not dominated by uniqueness)
   return pickBestNumericForTrend(data, numericColumns);
+}
+
+function detectTargetColumn(
+  data: any[],
+  headers: string[],
+  columnTypes: { [key: string]: 'numeric' | 'text' | 'date' }
+): string | undefined {
+  // Numeric binary 0/1
+  const numericBinary = Object.keys(columnTypes)
+    .filter(col => columnTypes[col] === 'numeric')
+    .find(col => {
+      const vals = Array.from(new Set(
+        data.map(r => r[col]).filter(v => v !== null && v !== undefined).map(v => Number(v))
+      ));
+      return vals.length === 2 && vals.every(v => v === 0 || v === 1);
+    });
+  if (numericBinary) return numericBinary;
+
+  // Text with exactly 2 classes
+  const textBinary = Object.keys(columnTypes)
+    .filter(col => columnTypes[col] === 'text')
+    .find(col => {
+      const vals = Array.from(new Set(
+        data.map(r => r[col]).filter(v => v !== null && v !== undefined)
+      ));
+      return vals.length === 2;
+    });
+  return textBinary;
+}
+
+function pickPositiveClass(classes: string[]): string {
+  // Prefer '1' if present, else the lexicographically larger (minority typically handled in aggregation by counts)
+  if (classes.includes('1')) return '1';
+  return classes.sort()[classes.length - 1];
 }
 
 function generateInsights(
