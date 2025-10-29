@@ -66,7 +66,7 @@ REQUIREMENTS:
         """Create intelligent local analysis without hardcoded phrase checks."""
         if df is None:
             return "I need access to the raw data to answer specific questions. Please re-upload your CSV file."
-
+        
         print(f"🔍 Analyzing question: '{question}'")
         print(f"🔍 Dataframe info: {df.shape[0]} rows, {df.shape[1]} columns")
         print(f"🔍 Columns: {list(df.columns)}")
@@ -401,8 +401,8 @@ REQUIREMENTS:
         
         return citations if citations else None
     
-    def _analyze_model_by_year(self, question: str, df: pd.DataFrame) -> str:
-        """Analyze entity performance over time - COMPLETELY DYNAMIC"""
+    def _analyze_entity_over_time(self, question: str, df: pd.DataFrame) -> str:
+        """Analyze entity performance over time (generic, dynamic)."""
         
         try:
             # Dynamically find categorical and time columns
@@ -537,8 +537,8 @@ REQUIREMENTS:
             print(f"Error in dynamic analysis: {e}")
             return f"I encountered an error analyzing the data: {str(e)}. Available columns: {', '.join(df.columns.tolist())}"
     
-    def _find_best_selling_item(self, question: str, df: pd.DataFrame) -> str:
-        """Find the best selling model/product/item in the dataset"""
+    def _find_top_entity_by_metric(self, question: str, df: pd.DataFrame) -> str:
+        """Find the top entity (model/product/brand) by a sales-like metric (generic)."""
         
         try:
             # Look for model/product/brand columns
@@ -609,12 +609,12 @@ REQUIREMENTS:
             print(f"Error in best selling analysis: {e}")
             return f"I encountered an error analyzing your data: {str(e)}. Available columns: {', '.join(df.columns.tolist())}"
     
-    def _find_max_country(self, question: str, df: pd.DataFrame) -> str:
-        """Find country with maximum value for specified metric - GENERIC approach"""
+    def _find_max_by_location(self, question: str, df: pd.DataFrame) -> str:
+        """Find location (country/region/state/city) with maximum value for a metric (generic)."""
         
         try:
-            # Find country/location column generically
-            country_col = self._find_country_column(df)
+            # Find location column generically
+            country_col = self._find_location_column(df)
             if not country_col:
                 return "I can't identify a country or location column in your dataset."
             
@@ -640,11 +640,11 @@ REQUIREMENTS:
             print(f"Error in max analysis: {e}")
             return "I encountered an error analyzing your data. Please check that your dataset has both location and numeric columns."
     
-    def _find_min_country(self, question: str, df: pd.DataFrame) -> str:
-        """Find country with minimum value for specified metric - GENERIC approach"""
+    def _find_min_by_location(self, question: str, df: pd.DataFrame) -> str:
+        """Find location (country/region/state/city) with minimum value for a metric (generic)."""
         
         try:
-            country_col = self._find_country_column(df)
+            country_col = self._find_location_column(df)
             if not country_col:
                 return "I can't identify a country or location column in your dataset."
             
@@ -775,8 +775,8 @@ REQUIREMENTS:
         sample_data = df.head(2).to_dict('records')
         return f"{basic_info}\n\nSample data:\n{str(sample_data)}\n\nI can analyze any of these columns. What specific question would you like me to answer about your data?"
     
-    def _find_country_column(self, df: pd.DataFrame) -> str:
-        """Find the column that contains country/location names"""
+    def _find_location_column(self, df: pd.DataFrame) -> str:
+        """Find the column that contains location names (country/region/state/city)."""
         possible_names = ['country', 'nation', 'location', 'place', 'region', 'state', 'city']
         
         for col in df.columns:
