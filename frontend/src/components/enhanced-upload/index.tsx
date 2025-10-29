@@ -40,17 +40,31 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="glass-card p-8 text-center max-w-md">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center animate-pulse">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-white border-t-transparent"></div>
+        </div>
+        <h3 className="text-xl font-semibold text-deep-indigo mb-2 flex items-center justify-center gap-2">
+          <span className="animate-pulse">🔄</span>
+          Running Business Intelligence Analysis
+        </h3>
+        <div className="space-y-2 text-deep-indigo/70">
+          <div className="flex items-center justify-center gap-2">
+            <span className="animate-bounce">1️⃣</span>
+            <span>ETL: Clean, type-cast, normalize</span>
           </div>
-          <h3 className="text-xl font-semibold text-deep-indigo mb-2">
-            🔍 Processing Your Data
-          </h3>
-          <p className="text-deep-indigo/70">
-            Our AI agents are analyzing your CSV file with advanced tools. This may take up to 75 seconds for complex datasets.
-          </p>
+          <div className="flex items-center justify-center gap-2">
+            <span className="animate-bounce" style={{animationDelay: "0.2s"}}>2️⃣</span>
+            <span>Analyze: KPIs, trends, deltas, correlations</span>
+          </div>
+          <div className="flex items-center justify-center gap-2">
+            <span className="animate-bounce" style={{animationDelay: "0.4s"}}>3️⃣</span>
+            <span>Generate: Precomputed chart specs</span>
+          </div>
+          <div className="flex items-center justify-center gap-2">
+            <span className="animate-bounce" style={{animationDelay: "0.6s"}}>4️⃣</span>
+            <span>Prepare: Chat analysis context</span>
+          </div>
+        </div>
           <div className="mt-4 w-full bg-gray-200 rounded-full h-2">
             <div className="bg-gradient-to-r from-primary to-accent h-2 rounded-full animate-pulse" style={{ width: "60%" }}></div>
           </div>
