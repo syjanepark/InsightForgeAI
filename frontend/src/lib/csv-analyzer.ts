@@ -76,8 +76,25 @@ function processCSVData(data: any[]): AnalyzedData {
   }
 
   const columnTypes = analyzeColumnTypes(cleanData, headers);
-  const numericColumns = Object.keys(columnTypes).filter(col => columnTypes[col] === 'numeric');
-  const textColumns = Object.keys(columnTypes).filter(col => columnTypes[col] === 'text');
+  // Prefer categorical columns with reasonable cardinality and exclude identifier-like names
+  const idLike = /(^|_)(id|uuid)$|^post_id$|^author_id$|^user_id$|^session_id$|^model_signature$|embedding|signature|hash/i;
+  const timeLike = /(timestamp|date|time|month|weekday)/i;
+
+  const textColumnsRaw = Object.keys(columnTypes).filter(col => columnTypes[col] === 'text');
+  const textColumns = textColumnsRaw.filter(col => {
+    if (idLike.test(col) || timeLike.test(col) || col.toLowerCase() === 'text') return false;
+    const uniq = new Set(cleanData.map(r => r[col])).size;
+    return uniq >= 3 && uniq <= Math.min(20, Math.ceil(cleanData.length * 0.2));
+  });
+
+  // Numeric columns: exclude id-like numeric columns (e.g., identifiers) if they appear almost unique
+  const numericColumns = Object.keys(columnTypes).filter(col => columnTypes[col] === 'numeric').filter(col => {
+    if (idLike.test(col)) return false;
+    const values = cleanData.map(r => r[col]).filter(v => v !== null && v !== undefined);
+    const uniq = new Set(values).size;
+    // allow if not almost unique across rows
+    return uniq <= Math.max(50, Math.ceil(cleanData.length * 0.9));
+  });
 
   try {
     // Generate charts based on data structure
@@ -145,12 +162,13 @@ function analyzeColumnTypes(data: any[], headers: string[]): { [key: string]: 'n
 function generateCharts(data: any[], headers: string[], numericColumns: string[], textColumns: string[]): AnalyzedData['charts'] {
   const charts: AnalyzedData['charts'] = [];
 
-  // Line chart - for trends over time or sequential data
+  // Line chart - prefer time-like x-axis if available
   if (numericColumns.length > 0) {
-    const trendColumn = numericColumns[0];
-    const lineData = data.slice(0, 10).map((row, index) => ({
-      name: row[headers[0]] || `Point ${index + 1}`,
-      value: parseFloat(row[trendColumn]) || 0
+    const trendColumn = pickBestNumericForTrend(data, numericColumns);
+    const timeCol = pickTimeLikeColumn(headers);
+    const lineData = data.slice(0, Math.min(500, data.length)).map((row, index) => ({
+      name: timeCol ? String(row[timeCol] ?? index + 1) : `Point ${index + 1}`,
+      value: Number(row[trendColumn]) || 0
     }));
 
     charts.push({
@@ -165,20 +183,21 @@ function generateCharts(data: any[], headers: string[], numericColumns: string[]
 
   // Bar chart - comparing categories
   if (textColumns.length > 0 && numericColumns.length > 0) {
-    const categoryColumn = textColumns[0];
-    const valueColumn = numericColumns[0];
+    const categoryColumn = pickBestCategoryColumn(data, textColumns);
+    const valueColumn = pickBestNumericForAggregation(data, numericColumns);
     
     // Aggregate data by category
     const categoryData: { [key: string]: number } = {};
     data.forEach(row => {
-      const category = row[categoryColumn] || 'Unknown';
-      const value = parseFloat(row[valueColumn]) || 0;
+      const category = row[categoryColumn] ?? 'Unknown';
+      const value = Number(row[valueColumn]) || 0;
       categoryData[category] = (categoryData[category] || 0) + value;
     });
 
     const barData = Object.entries(categoryData)
-      .slice(0, 8) // Limit to top 8 categories
-      .map(([name, value]) => ({ name, value }));
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name, value]) => ({ name: String(name), value }));
 
     charts.push({
       id: 'category-chart',
@@ -192,17 +211,18 @@ function generateCharts(data: any[], headers: string[], numericColumns: string[]
 
   // Pie chart - distribution of categories
   if (textColumns.length > 0) {
-    const categoryColumn = textColumns[0];
+    const categoryColumn = pickBestCategoryColumn(data, textColumns);
     const categoryCount: { [key: string]: number } = {};
     
     data.forEach(row => {
-      const category = row[categoryColumn] || 'Unknown';
+      const category = row[categoryColumn] ?? 'Unknown';
       categoryCount[category] = (categoryCount[category] || 0) + 1;
     });
 
     const pieData = Object.entries(categoryCount)
-      .slice(0, 6) // Top 6 categories
-      .map(([name, value]) => ({ name, value }));
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, value]) => ({ name: String(name), value }));
 
     charts.push({
       id: 'distribution-chart',
@@ -214,6 +234,40 @@ function generateCharts(data: any[], headers: string[], numericColumns: string[]
   }
 
   return charts;
+}
+
+function pickTimeLikeColumn(headers: string[]): string | undefined {
+  const timeLike = ['timestamp', 'date', 'time', 'month', 'weekday'];
+  return headers.find(h => timeLike.some(k => h.toLowerCase().includes(k)));
+}
+
+function pickBestCategoryColumn(data: any[], textColumns: string[]): string {
+  // choose the one with moderate cardinality and balanced distribution
+  const scored = textColumns.map(col => {
+    const uniq = new Set(data.map(r => r[col])).size;
+    return { col, uniq };
+  }).filter(x => x.uniq >= 3).sort((a, b) => a.uniq - b.uniq);
+  return (scored[0]?.col) || textColumns[0];
+}
+
+function pickBestNumericForTrend(data: any[], numericColumns: string[]): string {
+  // pick by highest variance
+  let best = numericColumns[0];
+  let bestVar = -Infinity;
+  numericColumns.forEach(col => {
+    const vals = data.map(r => Number(r[col])).filter(v => !isNaN(v));
+    if (vals.length >= 3) {
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const variance = vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (vals.length - 1);
+      if (variance > bestVar) { bestVar = variance; best = col; }
+    }
+  });
+  return best;
+}
+
+function pickBestNumericForAggregation(data: any[], numericColumns: string[]): string {
+  // pick stable, non-identifier numeric by variance (but not dominated by uniqueness)
+  return pickBestNumericForTrend(data, numericColumns);
 }
 
 function generateInsights(
