@@ -150,7 +150,7 @@ export default function Home() {
       const welcomeMessage: ChatMessage = {
         id: Date.now().toString(),
         type: "ai",
-        content: `Great! I've analyzed your CSV file with ${localAnalysis.summary.totalRows} rows and ${localAnalysis.summary.totalColumns} columns. I found ${analysisResult.insights.length} key insights and generated ${analysisResult.charts.length} visualizations. Feel free to ask me any questions about your data!`,
+        content: `I've analyzed your CSV file with ${localAnalysis.summary.totalRows} rows and ${localAnalysis.summary.totalColumns} columns. What would you like to know about your data?`,
         timestamp: new Date(),
       };
       setChatMessages([welcomeMessage]);
@@ -272,7 +272,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-deep-indigo">
-                InsightForge AI
+                InsightForge
               </h1>
               <p className="text-deep-indigo/70">Enterprise Data Intelligence</p>
             </div>

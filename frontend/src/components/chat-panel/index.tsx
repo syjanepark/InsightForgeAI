@@ -96,8 +96,8 @@ export function ChatPanel({
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-deep-indigo">InsightForge AI</h3>
-                <p className="text-xs text-deep-indigo/60">Ask me anything about your data</p>
+                <h3 className="font-semibold text-deep-indigo">Assistant</h3>
+                <p className="text-xs text-deep-indigo/60">Data analysis assistant</p>
               </div>
             </div>
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
