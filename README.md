@@ -202,11 +202,6 @@ npm test
 - Verify virtual environment: `which python` should point to venv
 - Check dependencies: `pip install -r requirements.txt`
 
-### API Errors
-- Verify YDC_API_KEY is set correctly
-- Check backend logs for specific error messages
-- Test basic endpoints: `curl http://localhost:8000/health`
-
 ### Frontend Issues
 - Clear browser cache and restart dev server
 - Check console for JavaScript errors
