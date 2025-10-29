@@ -169,6 +169,64 @@ function generateCharts(
 ): AnalyzedData['charts'] {
   const charts: AnalyzedData['charts'] = [];
 
+  // If we have a binary target, prioritize target-relevant charts and return early
+  if (targetCol) {
+    // Target distribution
+    const targetCount: { [key: string]: number } = {};
+    data.forEach(row => {
+      const key = String(row[targetCol]);
+      targetCount[key] = (targetCount[key] || 0) + 1;
+    });
+    const targetPie = Object.entries(targetCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name: String(name), value }));
+    charts.push({ id: 'target-distribution', type: 'pie', title: `Distribution of ${targetCol}`, data: targetPie, yKey: 'value' });
+
+    // Choose a meaningful category if available (prefer platform, country, region, author_verified)
+    const preferredCats = ['platform', 'country', 'region', 'author_verified', 'source_domain_reliability'];
+    const lowerSet = new Set(textColumns.map(c => c.toLowerCase()));
+    let categoryColumn = textColumns[0];
+    for (const p of preferredCats) {
+      const match = textColumns.find(c => c.toLowerCase() === p);
+      if (match) { categoryColumn = match; break; }
+    }
+
+    // Target by category (positive class emphasis)
+    const classes = Object.keys(targetCount);
+    const positive = pickPositiveClass(classes);
+    const agg: { [key: string]: number } = {};
+    data.forEach(row => {
+      if (String(row[targetCol]) === positive) {
+        const key = String(row[categoryColumn] ?? 'Unknown');
+        agg[key] = (agg[key] || 0) + 1;
+      }
+    });
+    const targetBar = Object.entries(agg)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name, value]) => ({ name: String(name), value }));
+    charts.push({ id: 'target-by-category', type: 'bar', title: `${targetCol}=${positive} by ${categoryColumn}`, data: targetBar, xKey: 'name', yKey: 'value' });
+
+    // Target rate over time (if time-like column)
+    const timeCol = pickTimeLikeColumn(headers);
+    if (timeCol) {
+      const grouped: { [key: string]: { pos: number; total: number } } = {};
+      data.forEach(row => {
+        const t = String(row[timeCol]);
+        const isPos = String(row[targetCol]) === positive ? 1 : 0;
+        if (!grouped[t]) grouped[t] = { pos: 0, total: 0 };
+        grouped[t].pos += isPos;
+        grouped[t].total += 1;
+      });
+      const line = Object.entries(grouped)
+        .sort((a, b) => (a[0] > b[0] ? 1 : -1))
+        .map(([name, v]) => ({ name, value: v.total ? (v.pos / v.total) * 100 : 0 }));
+      charts.push({ id: 'target-rate-over-time', type: 'line', title: `${targetCol} rate over ${timeCol} (%)`, data: line, xKey: 'name', yKey: 'value' });
+    }
+
+    return charts; // only target-relevant charts when a target is present
+  }
+
   // Line chart - prefer time-like x-axis if available
   if (numericColumns.length > 0) {
     const trendColumn = pickBestNumericForTrend(data, numericColumns);
