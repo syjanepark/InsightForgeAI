@@ -63,60 +63,214 @@ REQUIREMENTS:
         }
     
     def _create_local_analysis(self, question: str, context: str, df: pd.DataFrame = None) -> str:
-        """Create intelligent local analysis by actually querying the data"""
-        
+        """Create intelligent local analysis without hardcoded phrase checks."""
         if df is None:
             return "I need access to the raw data to answer specific questions. Please re-upload your CSV file."
-        
-        question_lower = question.lower()
-        
-        # First, let's see what data we actually have
+
         print(f"🔍 Analyzing question: '{question}'")
         print(f"🔍 Dataframe info: {df.shape[0]} rows, {df.shape[1]} columns")
         print(f"🔍 Columns: {list(df.columns)}")
-        
-        # Handle time-based analysis questions (completely generic)
-        time_patterns = ['year', 'month', 'quarter', 'date', 'time']
-        has_time = any(time_word in question_lower for time_word in time_patterns)
-        
-        analysis_patterns = ['top', 'best', 'highest', 'by each', 'by year', 'over time', 'trend', 'peak', 'when did', 'what year']
-        has_analysis = any(pattern in question_lower for pattern in analysis_patterns)
-        
-        if has_time and has_analysis:
-            return self._analyze_model_by_year(question_lower, df)
-        
-        # Handle specific "what model" or "what product" questions
-        elif any(word in question_lower for word in ['model', 'product', 'item', 'brand']) and any(word in question_lower for word in ['most', 'highest', 'largest', 'biggest', 'greatest', 'sold']):
-            return self._find_best_selling_item(question_lower, df)
-        
-        # Handle specific "what country" questions
-        elif 'country' in question_lower and any(word in question_lower for word in ['most', 'highest', 'largest', 'biggest', 'greatest']):
-            return self._find_max_country(question_lower, df)
-        
-        elif 'country' in question_lower and any(word in question_lower for word in ['least', 'lowest', 'smallest', 'minimum']):
-            return self._find_min_country(question_lower, df)
-        
-        # Handle product/company specific questions (like "Samsung sales decline")
-        elif any(word in question_lower for word in ['decline', 'drop', 'fell', 'decreased', 'down', 'lower']):
-            return self._analyze_decline_question(question_lower, df)
-        
-        elif any(word in question_lower for word in ['growth', 'increase', 'rise', 'grew', 'higher', 'up']):
-            return self._analyze_growth_question(question_lower, df)
-        
-        # Handle trend questions
-        elif 'trend' in question_lower:
-            return self._analyze_trends(df)
-        
-        # Handle comparison questions
-        elif any(word in question_lower for word in ['compare', 'vs', 'versus', 'difference']):
-            return self._compare_metrics(question_lower, df)
-        
-        # Handle summary questions
-        elif any(word in question_lower for word in ['summary', 'overview', 'describe', 'tell me about']):
-            return self._generate_summary(df)
-        
-        # Default: try to extract specific metrics mentioned
-        return self._analyze_mentioned_metrics(question_lower, df)
+
+        intent = self._detect_intent(question, df)
+        answer = self._handle_intent(intent, df)
+        if answer:
+            return answer
+        return self._analyze_mentioned_metrics(question.lower(), df)
+
+    def _detect_intent(self, question: str, df: pd.DataFrame) -> dict:
+        q = question.lower()
+        entity_col = self._find_entity_column(df)
+        entity = None
+        if entity_col:
+            # match multi-token, case-insensitive
+            tokens = q.split()
+            values = df[entity_col].dropna().astype(str).unique()
+            lower_map = {v.lower(): v for v in values}
+            # try 2-gram then 1-gram
+            for i in range(len(tokens)-1):
+                two = f"{tokens[i]} {tokens[i+1]}"
+                if two in lower_map:
+                    entity = lower_map[two]
+                    break
+            if not entity:
+                for t in tokens:
+                    if t in lower_map:
+                        entity = lower_map[t]
+                        break
+
+        # years
+        import re
+        years = [int(y) for y in re.findall(r'\b(19|20)\d{2}\b', q)]
+
+        # time/value columns
+        time_col = self._find_time_column(df)
+        value_col = self._pick_value_column(df)
+
+        # mode inference (no phrase hardcoding beyond "why" for causal)
+        mode = 'non_time_trend'
+        if entity and time_col and value_col:
+            if len(years) >= 1:
+                mode = 'compare_years'
+            elif 'why' in q or 'reason' in q or 'cause' in q:
+                mode = 'factor_explanation'
+            else:
+                mode = 'over_time_summary'
+        elif 'increase' in q or 'improve' in q or 'grow' in q or 'boost' in q or 'strategy' in q or 'what should we do' in q:
+            mode = 'strategy'
+
+        return {
+            'entity_col': entity_col,
+            'entity': entity,
+            'years': years,
+            'time_col': time_col,
+            'value_col': value_col,
+            'mode': mode
+        }
+
+    def _handle_intent(self, intent: dict, df: pd.DataFrame) -> str:
+        entity_col = intent.get('entity_col')
+        entity = intent.get('entity')
+        years = intent.get('years') or []
+        time_col = intent.get('time_col')
+        value_col = intent.get('value_col')
+        mode = intent.get('mode')
+
+        if mode == 'compare_years' and entity and time_col and value_col:
+            series = df[df[entity_col] == entity].groupby(time_col)[value_col].sum().sort_index()
+            if len(series) < 2:
+                return f"I need at least two years of {entity} data to compare."
+            y1 = years[0]
+            y2 = years[1] if len(years) > 1 else (y1 + 1 if (y1 + 1) in series.index else (y1 - 1))
+            if y1 not in series.index or y2 not in series.index:
+                return f"I couldn't find both {y1} and {y2} for {entity}. Available years: {', '.join(map(str, series.index.tolist()))}"
+            v1, v2 = series.loc[y1], series.loc[y2]
+            delta = v2 - v1
+            pct = (delta / v1 * 100.0) if v1 != 0 else float('inf')
+            return f"**{entity}** {value_col.replace('_',' ')} changed from **{v1:,.0f}** in **{y1}** to **{v2:,.0f}** in **{y2}** ({pct:+.1f}%)."
+
+        if mode == 'over_time_summary' and entity and time_col and value_col:
+            sub = df[df[entity_col] == entity]
+            if sub.empty:
+                return f"I couldn't find {entity} in the dataset."
+            by_year = sub.groupby(time_col)[value_col].sum().sort_index()
+            peak_year = by_year.idxmax()
+            peak_val = by_year.max()
+            return f"**{entity}** {value_col.replace('_',' ')} peaks at **{peak_year}** with **{peak_val:,.0f}**. Range: {by_year.index.min()}–{by_year.index.max()} ({len(by_year)} periods)."
+
+        if mode == 'factor_explanation' and entity and time_col and value_col:
+            return self._analyze_sales_decline("why " + entity, df)
+
+        if mode == 'strategy':
+            return self._handle_strategy(df, entity_col, entity, time_col, value_col)
+
+        if mode == 'non_time_trend':
+            return self._dataset_trends_and_correlations(df)
+
+        return None
+
+    def _find_time_column(self, df: pd.DataFrame) -> str:
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        # prefer explicit 'year'
+        for c in numeric_cols:
+            if 'year' in c.lower():
+                return c
+        # year-like range
+        for c in numeric_cols:
+            try:
+                mn, mx = df[c].min(), df[c].max()
+                if pd.notna(mn) and pd.notna(mx) and 1900 <= float(mn) <= 2100 and 1900 <= float(mx) <= 2100:
+                    return c
+            except Exception:
+                continue
+        return None
+
+    def _pick_value_column(self, df: pd.DataFrame) -> str:
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        priority = ['sales', 'volume', 'units', 'sold', 'revenue', 'amount', 'count']
+        for c in numeric_cols:
+            cl = c.lower()
+            if any(p in cl for p in priority):
+                return c
+        # fallback: most variable numeric col
+        if numeric_cols:
+            variances = [(c, df[c].std()) for c in numeric_cols]
+            variances.sort(key=lambda x: (0 if pd.isna(x[1]) else -x[1]))
+            return variances[0][0] if variances else None
+        return None
+
+    def _dataset_trends_and_correlations(self, df: pd.DataFrame) -> str:
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        if not numeric_cols:
+            return "I don't see numeric columns to summarize trends."
+        insights = [f"Dataset has {len(df):,} rows and {len(df.columns)} columns."]
+        # top 3 by variance
+        scored = []
+        for c in numeric_cols:
+            col = df[c].dropna()
+            if len(col) >= 3:
+                mean = col.mean()
+                std = col.std()
+                if std and abs(mean) > 0:
+                    cv = std/abs(mean)
+                    scored.append((c, cv))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        if scored:
+            insights.append("Most variable metrics: " + ", ".join([f"{c.replace('_',' ')} (CV {cv:.2f})" for c, cv in scored[:3]]))
+        # simple correlation matrix top pairs
+        if len(numeric_cols) >= 2:
+            corr = df[numeric_cols].corr(numeric_only=True)
+            pairs = []
+            for i, a in enumerate(numeric_cols):
+                for b in numeric_cols[i+1:]:
+                    val = corr.at[a, b]
+                    if pd.notna(val):
+                        pairs.append((a, b, abs(val), val))
+            pairs.sort(key=lambda x: x[2], reverse=True)
+            if pairs:
+                top = pairs[0]
+                insights.append(f"Strongest correlation: {top[0].replace('_',' ')} vs {top[1].replace('_',' ')} (r={top[3]:+.2f})")
+        return "\n".join(insights)
+
+    def _handle_strategy(self, df: pd.DataFrame, entity_col: str, entity: str, time_col: str, value_col: str) -> str:
+        # Strategy recommendations based on correlations/segments (data-driven)
+        lines = ["Strategy recommendations based on your data:"]
+        # If entity specified, use its slice; else whole dataset
+        scope = df
+        label = "overall"
+        if entity_col and entity:
+            scope = df[df[entity_col] == entity]
+            label = entity
+        # price elasticity hint
+        numeric_cols = scope.select_dtypes(include=['number']).columns.tolist()
+        price_cols = [c for c in numeric_cols if any(k in c.lower() for k in ['price', 'usd', 'amount'])]
+        if value_col and price_cols:
+            pc = price_cols[0]
+            if time_col:
+                agg = scope.groupby(time_col).agg({value_col: 'sum', pc: 'mean'})
+            else:
+                agg = scope[[value_col, pc]].dropna()
+            if len(agg) >= 3:
+                corr = agg.corr(numeric_only=True)[value_col].get(pc, None)
+                if pd.notna(corr):
+                    if corr < -0.2:
+                        lines.append(f"- Consider price testing: {value_col.replace('_',' ')} is negatively correlated with {pc.replace('_',' ')} (r={corr:+.2f}) for {label}.")
+                    elif corr > 0.2:
+                        lines.append(f"- Pricing not a headwind: positive correlation with {pc.replace('_',' ')} (r={corr:+.2f}).")
+        # region focus
+        cat_cols = scope.select_dtypes(include=['object']).columns.tolist()
+        region_cols = [c for c in cat_cols if any(k in c.lower() for k in ['region', 'market', 'area'])]
+        if value_col and region_cols:
+            rc = region_cols[0]
+            perf = scope.groupby(rc)[value_col].sum().sort_values(ascending=False)
+            if len(perf) >= 2:
+                lines.append(f"- Double down on top {rc}: {perf.index[0]} (best), explore improving {perf.index[-1]} (lowest).")
+        # segment optimization generic
+        if cat_cols:
+            seg = cat_cols[0]
+            seg_perf = scope.groupby(seg).size().sort_values(ascending=False).head(3)
+            if len(seg_perf) > 0:
+                lines.append(f"- Focus on leading {seg}: " + ", ".join([str(i) for i in seg_perf.index.tolist()]))
+        return "\n".join(lines)
     
     def _generate_visualizations(self, question: str, df: pd.DataFrame) -> list:
         """Generate relevant visualizations based on the question and data - DYNAMIC"""
@@ -996,3 +1150,112 @@ REQUIREMENTS:
                 return col
         
         return None
+
+    def _analyze_sales_decline(self, question: str, df: pd.DataFrame) -> str:
+        """Explain sales/volume decline for a specific entity between years using actual dataset columns."""
+        try:
+            entity_col = self._find_entity_column(df)
+            if not entity_col:
+                return "I can't identify a product/entity column in the dataset."
+
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            if not numeric_cols:
+                return "I need numeric columns (e.g., Sales_Volume) to analyze this."
+
+            # Time column detection (prefer year)
+            time_candidates = [c for c in numeric_cols if 'year' in c.lower() or (df[c].min() >= 1900 and df[c].max() <= 2100)]
+            if not time_candidates:
+                return "I can't find a year/time column to compare years."
+            time_col = time_candidates[0]
+
+            # Value (sales) column
+            value_priority = ['sales', 'volume', 'units', 'sold']
+            sales_cols = [c for c in numeric_cols if any(p in c.lower() for p in value_priority) and c != time_col]
+            if not sales_cols:
+                return "I can't find a sales/volume column in the dataset."
+            value_col = sales_cols[0]
+
+            # Entity extraction
+            ent = None
+            qlower = question.lower()
+            for e in df[entity_col].unique():
+                if str(e).lower() in qlower:
+                    ent = e
+                    break
+            if not ent:
+                return f"Specify which {entity_col.lower()} to analyze. Examples: {', '.join(map(str, df[entity_col].unique()[:5]))}"
+
+            # Years extraction
+            import re
+            years = [int(y) for y in re.findall(r'\b(19|20)\d{2}\b', qlower)]
+
+            ent_df = df[df[entity_col] == ent]
+            if ent_df.empty:
+                return f"I couldn't find {ent} in the dataset."
+
+            series = ent_df.groupby(time_col)[value_col].sum().sort_index()
+            if len(series) < 2:
+                return f"I need at least two years of {ent} data to compare."
+
+            if len(years) >= 2:
+                y1, y2 = years[0], years[1]
+            elif len(years) == 1:
+                y1 = years[0]
+                y2 = y1 + 1 if (y1 + 1) in series.index else (y1 - 1)
+            else:
+                idx = list(series.index)
+                y1, y2 = idx[-2], idx[-1]
+
+            if y1 not in series.index or y2 not in series.index:
+                return f"I couldn't find both {y1} and {y2} for {ent}. Available years: {', '.join(map(str, series.index.tolist()))}"
+
+            v1, v2 = series.loc[y1], series.loc[y2]
+            delta = v2 - v1
+            pct = (delta / v1 * 100.0) if v1 != 0 else float('inf')
+
+            lines = [f"**{ent}** {value_col.replace('_',' ')} changed from **{v1:,.0f}** in **{y1}** to **{v2:,.0f}** in **{y2}** ({pct:+.1f}%)."]
+
+            # Factors: price, region mix, correlations
+            factors = []
+
+            price_cols = [c for c in numeric_cols if any(k in c.lower() for k in ['price', 'usd', 'amount']) and c not in [value_col, time_col]]
+            if price_cols:
+                pc = price_cols[0]
+                p_by_year = ent_df.groupby(time_col)[pc].mean()
+                if y1 in p_by_year and y2 in p_by_year:
+                    p1, p2 = p_by_year.get(y1, None), p_by_year.get(y2, None)
+                    if pd.notna(p1) and pd.notna(p2):
+                        ppct = ((p2 - p1) / p1 * 100.0) if p1 != 0 else None
+                        if ppct is not None:
+                            factors.append(f"Average {pc.replace('_',' ')} changed {ppct:+.1f}% ({p1:,.0f} → {p2:,.0f}).")
+
+            region_cols = [c for c in df.select_dtypes(include=['object']).columns if any(k in c.lower() for k in ['region', 'market', 'area'])]
+            if region_cols:
+                rc = region_cols[0]
+                dist1 = ent_df[ent_df[time_col] == y1][rc].value_counts(normalize=True).head(3)
+                dist2 = ent_df[ent_df[time_col] == y2][rc].value_counts(normalize=True).head(3)
+                if not dist1.empty and not dist2.empty:
+                    factors.append(
+                        f"Region mix shifted. Top {rc} in {y1}: " + ", ".join([f"{k} {v*100:.0f}%" for k,v in dist1.items()]) + "; "
+                        f"in {y2}: " + ", ".join([f"{k} {v*100:.0f}%" for k,v in dist2.items()]) + "."
+                    )
+
+            # Correlations across years for this entity (if >=3 years)
+            other_nums = [c for c in numeric_cols if c not in [value_col, time_col]]
+            if len(series.index) >= 3 and other_nums:
+                yearly = ent_df.groupby(time_col).agg({c: 'mean' for c in other_nums})
+                yearly[value_col] = ent_df.groupby(time_col)[value_col].sum()
+                corrs = yearly.corr(numeric_only=True)[value_col].drop(labels=[value_col]).sort_values(ascending=False)
+                if not corrs.empty:
+                    top_corr = corrs.head(2)
+                    corr_text = ", ".join([f"{idx.replace('_',' ')} ({val:+.2f})" for idx, val in top_corr.items()])
+                    factors.append(f"Across years for {ent}, {value_col.replace('_',' ')} correlates with: {corr_text} (corr).")
+
+            if factors:
+                lines.append("Possible contributing factors in your data:")
+                lines.extend([f"- {f}" for f in factors])
+
+            return "\n".join(lines)
+        except Exception as e:
+            print(f"Error in sales-decline analysis: {e}")
+            return "I encountered an error analyzing this sales change. Please verify the dataset columns."
