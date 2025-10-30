@@ -8,6 +8,7 @@ import { ChartBuilder } from "@/components/dashboard/ChartBuilder";
 import { ChatPanel, ChatMessage } from "@/components/chat-panel";
 import { analyzeCSV as apiAnalyzeCSV, AnalysisResult, sendChatMessage } from "@/lib/api";
 import { analyzeCSV } from "@/lib/csv-analyzer";
+import { showInfo } from "@/components/ui/toast";
 
 export default function Home() {
   const [currentView, setCurrentView] = useState<"upload" | "dashboard">("upload");
@@ -93,6 +94,7 @@ export default function Home() {
     setError(null);
     
     try {
+      showInfo(`Uploading ${file.name}...`);
       console.log('🚀 Starting upload process for file:', file.name);
       
       // Update agents with more specific status messages
@@ -280,7 +282,7 @@ export default function Home() {
             {currentView === "dashboard" && (
               <button
                 onClick={resetAnalysis}
-                className="px-4 py-2 glass-card border border-white/30 text-deep-indigo hover:text-primary transition-colors rounded-lg hover-lift"
+                className="px-4 py-2 glass-card border border-white/30 text-deep-indigo hover:text-primary transition-colors rounded-lg hover-lift bg-cololr-violet text-white"
               >
                 Analyze New File
               </button>

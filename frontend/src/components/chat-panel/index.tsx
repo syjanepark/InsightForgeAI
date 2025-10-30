@@ -66,7 +66,7 @@ export function ChatPanel({
       {/* Chat Toggle Button */}
       <button
         onClick={onToggle}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 ${
+        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center bg-cololr-violet justify-center transition-all duration-300 hover:scale-110 ${
           isOpen 
             ? "bg-red-500 glow-violet" 
             : hasNewMessages 
@@ -94,7 +94,7 @@ export function ChatPanel({
       {isOpen && (
         <div className="fixed bottom-24 right-6 w-96 h-[500px] z-40 glass-card border border-white/30 flex flex-col slide-up-fade">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-white/20">
+          <div className="flex items-center justify-between p-4 border-b border-white/20 bg-cololr-violet">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
                 <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -102,7 +102,7 @@ export function ChatPanel({
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-deep-indigo">Assistant</h3>
+                <h3 className="font-semibold text-deep-indigo text-white">Assistant</h3>
                 <p className="text-xs text-deep-indigo/60">Data analysis assistant</p>
               </div>
             </div>
@@ -130,7 +130,7 @@ export function ChatPanel({
             
             {isAiTyping && (
               <div className="flex items-start space-x-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0 bg-cololr-violet">
                   <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
@@ -163,7 +163,7 @@ export function ChatPanel({
               <button
                 type="submit"
                 disabled={!inputValue.trim() || isAiTyping}
-                className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white hover:scale-110 transition-transform duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-cololr-violet w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white hover:scale-110 transition-transform duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -193,7 +193,7 @@ function ChatMessage({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex items-start space-x-3">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0">
+      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0 bg-cololr-violet">
         {message.isTyping ? (
           <div className="flex space-x-1">
             <div className="w-1 h-1 bg-white rounded-full animate-bounce"></div>

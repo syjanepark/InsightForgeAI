@@ -83,6 +83,12 @@
   .text-secondary {
     color: #A78BFA;
   }
+  .text-black {
+    color: #000000;
+  }
+  .text-white {
+    color: #FFFFFF;
+  }
   
   .bg-secondary {
     background-color: #A78BFA;
@@ -209,4 +215,34 @@
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(135deg, #7C3AED, #8B5CF6);
+}
+
+.bg-cololr-violet {
+  background-color: #8b7cf6;
+}
+.bg-color-blue {
+  background-color: rgb(0 97 246);
+}
+
+.toast-glass {
+  @apply rounded-2xl shadow-lg border backdrop-blur-md px-4 py-3 text-sm transition-all;
+}
+
+.toast-success {
+  @apply bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-100 text-emerald-700;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+}
+
+.toast-warning {
+  @apply bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-100 text-amber-700;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.15);
+}
+
+.toast-error {
+  @apply bg-gradient-to-r from-rose-50 to-red-50 border-rose-100 text-rose-700;
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.15);
+}
+.toast-info {
+  @apply bg-gradient-to-r from-sky-50 to-blue-50 border-sky-100 text-sky-700;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
 }

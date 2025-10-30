@@ -76,7 +76,7 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
   return (
     <div className="flex items-center justify-center min-h-[500px] px-4">
       <div
-        className={`relative group max-w-2xl w-full transition-all duration-500 transform hover:scale-105 ${
+        className={`relative group w-full transition-all duration-500 transform hover:scale-105 ${
           dragging ? "scale-105" : ""
         }`}
         onDragOver={(e) => {
@@ -99,7 +99,7 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
           
           <div className="relative z-10">
             {/* Large Icon */}
-            <div className="mx-auto w-24 h-24 mb-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl glow-violet group-hover:scale-110 transition-transform duration-300">
+            <div className="mx-auto w-24 h-24 mb-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl glow-violet group-hover:scale-110 transition-transform duration-300 bg-cololr-violet">
               <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>

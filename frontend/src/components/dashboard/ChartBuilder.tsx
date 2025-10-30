@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getChartColumns, getChartPreview, summarizeCharts } from "@/lib/api";
 import Markdown from "react-markdown";
 import { ChartRenderer } from "./ChartGrid";
+import {showInfo, showWarning } from "../ui/toast";
 
 type SlotState = { chart_type: 'bar'|'line'|'scatter'|'pie'; x: string; y: string; agg: 'sum'|'mean'|'count'; preview?: { type: string; spec: any } };
 
@@ -26,9 +27,17 @@ export function ChartBuilder({ runId }: { runId: string }) {
   }, [runId]);
 
   async function generate(i: number) {
+    showInfo('Generating chart preview...');
     const s = slots[i];
     if (!s.x || !s.y) return;
-    const res = await getChartPreview({ run_id: runId, x: s.x, y: s.y, agg: s.agg, chart_type: s.chart_type });
+    if(s.x === s.y){
+      showWarning("X and Y axis cannot be the same");
+      return;
+    }
+    let res = await getChartPreview({ run_id: runId, x: s.x, y: s.y, agg: s.agg, chart_type: s.chart_type });
+    if(null == res){
+      res = { type: 'error', spec: { message: 'No preview available' } };
+    }
     setSlots(prev => prev.map((p, idx) => idx === i ? { ...p, preview: res } : p));
   }
 
