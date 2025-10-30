@@ -151,3 +151,6 @@ tmp/
 temp/
 *.tmp
 
+
+# Ignore Next.js build
+frontend/.next
