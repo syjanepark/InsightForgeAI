@@ -26,6 +26,7 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    document.getElementById("enhanced-csv-input")?.setAttribute("aria-pressed", "true");
     const file = e.target.files?.[0];
     if (file) {
       setUploaded(true);
@@ -123,8 +124,12 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
                 </div>
-                <div className="text-sm font-medium text-deep-indigo">Instant Analysis</div>
-                <div className="text-xs text-deep-indigo/60 mt-1">Real-time processing</div>
+                <div 
+                aria-label="Instant Analysis"
+                className="text-sm font-medium text-deep-indigo">Instant Analysis</div>
+                <div
+                aria-label="Real-time processing"
+                className="text-xs text-deep-indigo/60 mt-1">Real-time processing</div>
               </div>
               
               <div className="glass-card p-4 border border-white/20 hover-lift">
@@ -133,8 +138,12 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
                     <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
                   </svg>
                 </div>
-                <div className="text-sm font-medium text-deep-indigo">Smart Insights</div>
-                <div className="text-xs text-deep-indigo/60 mt-1">AI-powered reports</div>
+                <div 
+                aria-label="Smart Insights"
+                className="text-sm font-medium text-deep-indigo">Smart Insights</div>
+                <div
+                  aria-label="AI-powered reports"
+                  className="text-xs text-deep-indigo/60 mt-1">AI-powered reports</div>
               </div>
               
               <div className="glass-card p-4 border border-white/20 hover-lift">
@@ -143,8 +152,12 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
                     <path fillRule="evenodd" d="M6 6V5a3 3 0 013-3h2a3 3 0 013 3v1h2a2 2 0 012 2v3.57A22.952 22.952 0 0110 13a22.95 22.95 0 01-8-1.43V8a2 2 0 012-2h2zm2-1a1 1 0 011-1h2a1 1 0 011 1v1H8V5zm1 5a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clipRule="evenodd"/>
                   </svg>
                 </div>
-                <div className="text-sm font-medium text-deep-indigo">Secure Processing</div>
-                <div className="text-xs text-deep-indigo/60 mt-1">Enterprise grade</div>
+                <div 
+                  aria-label="Secure Processing"
+                  className="text-sm font-medium text-deep-indigo">Secure Processing</div>
+                <div
+                  aria-label="Enterprise grade"
+                  className="text-xs text-deep-indigo/60 mt-1">Enterprise grade</div>
               </div>
             </div>
             
@@ -152,21 +165,29 @@ export function EnhancedUpload({ onUpload, loading = false, onTransform }: Enhan
             <div className="flex items-center justify-center space-x-8 text-deep-indigo/60 text-sm">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                <span className="font-medium">CSV format only</span>
+                <span 
+                  aria-label="CSV format only"
+                  className="font-medium">CSV format only</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-secondary rounded-full animate-pulse" style={{ animationDelay: "0.2s" }}></div>
-                <span className="font-medium">Up to 50MB</span>
+                <span 
+                  aria-label="Up to 50MB"
+                  className="font-medium">Up to 50MB</span>
               </div>
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-accent rounded-full animate-pulse" style={{ animationDelay: "0.4s" }}></div>
-                <span className="font-medium">Instant results</span>
+                <span 
+                  aria-label="Instant results"
+                  className="font-medium">Instant results</span>
               </div>
             </div>
           </div>
         </div>
         
         <input
+          aria-label="Upload CSV file"
+          aria-hidden="true"
           id="enhanced-csv-input"
           type="file"
           accept=".csv"

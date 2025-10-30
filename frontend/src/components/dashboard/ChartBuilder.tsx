@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import { getChartColumns, getChartPreview, summarizeCharts } from "@/lib/api";
 import Markdown from "react-markdown";
 import { ChartRenderer } from "./ChartGrid";
-import {showInfo, showWarning } from "../ui/toast";
+import {showInfo, showWarning } from "@/components/ui/toast";
+import { useScreenLoader } from "@/components/ui/ScreenLoader";
+import { focusElement } from "@/components/ui/FocusBody";
 
 type SlotState = { chart_type: 'bar'|'line'|'scatter'|'pie'; x: string; y: string; agg: 'sum'|'mean'|'count'; preview?: { type: string; spec: any } };
 
 export function ChartBuilder({ runId }: { runId: string }) {
+  const { showLoader, hideLoader } = useScreenLoader();
   const [cols, setCols] = useState<{ numeric: string[]; categorical: string[]; datetime: string[] }>({ numeric: [], categorical: [], datetime: [] });
   const [summary, setSummary] = useState<string>("");
   const [slots, setSlots] = useState<SlotState[]>([
@@ -27,17 +30,18 @@ export function ChartBuilder({ runId }: { runId: string }) {
   }, [runId]);
 
   async function generate(i: number) {
-    showInfo('Generating chart preview...');
     const s = slots[i];
     if (!s.x || !s.y) return;
     if(s.x === s.y){
       showWarning("X and Y axis cannot be the same");
       return;
     }
+    showLoader();
     let res = await getChartPreview({ run_id: runId, x: s.x, y: s.y, agg: s.agg, chart_type: s.chart_type });
     if(null == res){
       res = { type: 'error', spec: { message: 'No preview available' } };
     }
+    hideLoader();
     setSlots(prev => prev.map((p, idx) => idx === i ? { ...p, preview: res } : p));
   }
 
@@ -75,7 +79,9 @@ export function ChartBuilder({ runId }: { runId: string }) {
                 <option value="count">count</option>
               </select>
             </div>
-            <button className="bg-[#A18AFF] text-white px-3 py-2 rounded" onClick={() => generate(i)}>Generate</button>
+            <div className="content-end">
+              <button className="bg-[#A18AFF] text-white px-3 py-2 rounded" onClick={() => generate(i)}>Generate</button>
+            </div>
             {s.preview && (
               <div className="mt-3"><ChartRenderer type={s.preview.type} spec={s.preview.spec} /></div>
             )}
@@ -86,17 +92,20 @@ export function ChartBuilder({ runId }: { runId: string }) {
         <button
           className="bg-[#6B5AE0] text-white px-3 py-2 rounded"
           onClick={async () => {
+            showLoader();
             const selected = slots.filter(s => s.preview).slice(0,3).map(s => s.preview!) as any;
             if (selected.length === 0) return;
             const res = await summarizeCharts({ run_id: runId, charts: selected });
             setSummary(res.answer || "");
+            hideLoader();
+            setTimeout(() => focusElement(".pageSummaryBlock"), 300);
           }}
         >
           Summarize current charts
         </button>
       </div>
       {summary && (
-        <div className="mt-3 border rounded-xl p-4 bg-[#F7F7FA]">
+        <div className="mt-3 border pageSummaryBlock rounded-xl p-4 bg-[#F7F7FA]">
           <Markdown>{summary}</Markdown>
         </div>
       )}

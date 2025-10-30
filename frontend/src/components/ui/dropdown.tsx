@@ -121,6 +121,7 @@ export function DropdownTrigger({ children, className }: DropdownTriggerProps) {
 
   return (
     <button
+      aria-label="Toggle Dropdown"
       className={className}
       onClick={handleOpen}
       aria-expanded={isOpen}

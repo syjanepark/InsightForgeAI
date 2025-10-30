@@ -5,6 +5,7 @@ import NextTopLoader from "nextjs-toploader";
 import type { PropsWithChildren } from "react";
 import { Providers } from "./providers";
 import { ToastManager } from "@/components/ui/toast";
+import { ScreenLoaderProvider } from "@/components/ui/ScreenLoader";
 
 export const metadata: Metadata = {
   title: {
@@ -25,7 +26,7 @@ export default function RootLayout({ children }: PropsWithChildren) {
           
           {/* Main Content Area */}
           <main className="min-h-screen">
-            {children}
+            <ScreenLoaderProvider>{children}</ScreenLoaderProvider>
           </main>
         </Providers>
       </body>

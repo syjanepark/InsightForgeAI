@@ -118,7 +118,11 @@ export function ChatPanel({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
                 </div>
-                <p className="text-sm text-deep-indigo/60">
+                <p
+                  role="status"
+                  aria-live="polite"
+                  aria-label="Start a conversation! I am here to help analyze your data."
+                  className="text-sm text-deep-indigo/60">
                   Start a conversation! I&apos;m here to help analyze your data.
                 </p>
               </div>
@@ -154,6 +158,7 @@ export function ChatPanel({
               <input
                 ref={inputRef}
                 type="text"
+                aria-label="Ask about your data"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="Ask about your data..."
@@ -161,6 +166,7 @@ export function ChatPanel({
                 disabled={isAiTyping}
               />
               <button
+                aria-label="Submit Message"
                 type="submit"
                 disabled={!inputValue.trim() || isAiTyping}
                 className="bg-cololr-violet w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white hover:scale-110 transition-transform duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -182,7 +188,9 @@ function ChatMessage({ message }: { message: ChatMessage }) {
     return (
       <div className="flex justify-end">
         <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white px-4 py-3 rounded-2xl rounded-br-md max-w-xs shadow-lg">
-          <p className="text-sm text-white">{message.content}</p>
+          <p 
+            aria-label={message.content}
+            className="text-sm text-white">{message.content}</p>
           <p className="text-xs text-white/70 mt-1">
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
@@ -208,7 +216,9 @@ function ChatMessage({ message }: { message: ChatMessage }) {
       </div>
       <div className="max-w-xs">
         <div className={`glass-card px-4 py-3 border border-white/20 ${message.isTyping ? 'animate-pulse' : ''}`}>
-          <p className="text-sm text-deep-indigo">{message.content}</p>
+          <p
+            aria-label={message.content} 
+            className="text-sm text-deep-indigo">{message.content}</p>
           <p className="text-xs text-deep-indigo/60 mt-1">
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>

@@ -12,6 +12,7 @@ export function CSVUpload({ onUpload, loading = false }: CSVUploadProps) {
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    document.getElementById("csv-file-input")?.setAttribute("aria-pressed", "true");
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file && file.type === "text/csv") {
@@ -20,6 +21,7 @@ export function CSVUpload({ onUpload, loading = false }: CSVUploadProps) {
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    document.getElementById("csv-file-input")?.setAttribute("aria-pressed", "true");
     const file = e.target.files?.[0];
     if (file) {
       onUpload(file);
@@ -91,6 +93,8 @@ export function CSVUpload({ onUpload, loading = false }: CSVUploadProps) {
       </div>
       
       <input
+        aria-label="Upload CSV file"
+        aria-hidden="true"
         id="csv-file-input"
         type="file"
         accept=".csv"

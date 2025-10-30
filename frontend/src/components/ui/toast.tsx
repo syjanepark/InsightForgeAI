@@ -21,7 +21,11 @@ export const ToastManager = () => (
 
 export const showSuccess = (msg: string, duration = 5000) =>
   toast.custom(
-    <div className="toast-glass toast-success flex items-center gap-3">
+    <div 
+    role="status"
+    aria-live="polite"
+    aria-label={`Success notification of ${msg}`}
+    className="toast-glass toast-success flex items-center gap-3">
       <CheckCircle className="h-5 w-5 text-emerald-500" />
       <span>{msg}</span>
     </div>,
@@ -30,7 +34,12 @@ export const showSuccess = (msg: string, duration = 5000) =>
 
 export const showWarning = (msg: string, duration = 5000) =>
   toast.custom(
-    <div className="toast-glass toast-warning flex items-center gap-3">
+    <div 
+    role="alert"
+    aria-live="assertive"
+    aria-label={`Warning notification of ${msg}`}
+
+    className="toast-glass toast-warning flex items-center gap-3">
       <AlertTriangle className="h-5 w-5 text-amber-500" />
       <span>{msg}</span>
     </div>,
@@ -39,7 +48,12 @@ export const showWarning = (msg: string, duration = 5000) =>
 
 export const showError = (msg: string, duration = 5000) =>
   toast.custom(
-    <div className="toast-glass toast-error flex items-center gap-3">
+    <div 
+      role="alert"
+      aria-live="assertive"
+      aria-label={`Error notification of ${msg}`}
+
+    className="toast-glass toast-error flex items-center gap-3">
       <XCircle className="h-5 w-5 text-rose-500" />
       <span>{msg}</span>
     </div>,
@@ -48,7 +62,12 @@ export const showError = (msg: string, duration = 5000) =>
 
 export const showInfo = (msg: string, duration = 5000) =>
   toast.custom(
-    <div className="toast-glass toast-info flex items-center gap-3">
+    <div
+    role="status"
+    aria-live="polite"
+    aria-label={`Info notification of ${msg}`}
+
+    className="toast-glass toast-info flex items-center gap-3">
       <XCircle className="h-5 w-5 text-sky-500" />
       <span>{msg}</span>
     </div>,

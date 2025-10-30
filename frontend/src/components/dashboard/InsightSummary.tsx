@@ -17,6 +17,7 @@ export function InsightSummary({ iri }: { iri: { insight?: string; reasoning?: s
         </motion.div>
       ))}
       <button
+        aria-label="Ask a deeper question"
         className="mt-2 text-white bg-[#A18AFF] px-3 py-2 rounded-lg"
         onClick={() => window.dispatchEvent(new CustomEvent("openChatSeed", { detail: "Why did this trend happen?" }))}
       >
