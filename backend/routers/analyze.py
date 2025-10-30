@@ -149,11 +149,168 @@ def generate_analysis(df: pd.DataFrame) -> Dict[str, Any]:
         "qa_context": "\n".join(context_lines)
     })
 
+def _detect_binary_target(df: pd.DataFrame) -> tuple:
+    """Detect binary target variable in the dataset - completely dynamic"""
+    
+    # Find all binary columns (exactly 2 unique values)
+    binary_cols = []
+    for col in df.columns:
+        unique_vals = df[col].dropna().unique()
+        if len(unique_vals) == 2:
+            binary_cols.append(col)
+    
+    if not binary_cols:
+        return None, None
+    
+    # Score columns by how likely they are to be targets
+    # Higher score = more likely to be target
+    scored_cols = []
+    
+    for col in binary_cols:
+        score = 0
+        col_lower = col.lower()
+        
+        # Target-like keywords (generic, not hardcoded)
+        target_keywords = ['target', 'label', 'class', 'outcome', 'result', 'flag', 'status', 'type', 'category']
+        for keyword in target_keywords:
+            if keyword in col_lower:
+                score += 10
+        
+        # Binary pattern keywords
+        binary_keywords = ['is_', 'has_', 'can_', 'should_', 'will_', 'did_', 'was_', 'were_']
+        for keyword in binary_keywords:
+            if col_lower.startswith(keyword):
+                score += 5
+        
+        # Avoid obvious non-targets
+        avoid_keywords = ['id', 'index', 'count', 'num_', 'total_', 'sum_', 'avg_', 'mean_', 'max_', 'min_']
+        for keyword in avoid_keywords:
+            if keyword in col_lower:
+                score -= 5
+        
+        # Prefer columns with balanced distribution (not too skewed)
+        value_counts = df[col].value_counts()
+        if len(value_counts) == 2:
+            ratio = min(value_counts) / max(value_counts)
+            if 0.2 <= ratio <= 0.8:  # Balanced distribution
+                score += 3
+            elif ratio < 0.1:  # Very skewed
+                score -= 2
+        
+        scored_cols.append((col, score))
+    
+    # Sort by score (highest first) and pick the best one
+    scored_cols.sort(key=lambda x: x[1], reverse=True)
+    
+    if not scored_cols or scored_cols[0][1] < 0:
+        return None, None
+    
+    best_col = scored_cols[0][0]
+    unique_vals = df[best_col].dropna().unique()
+    
+    # Determine positive class
+    if df[best_col].dtype in ['int64', 'float64'] and set(unique_vals) == {0, 1}:
+        return best_col, 1
+    elif df[best_col].dtype == 'object':
+        # Check for common binary text patterns
+        unique_lower = [str(v).lower() for v in unique_vals]
+        if 'true' in unique_lower and 'false' in unique_lower:
+            return best_col, 'true'
+        elif 'yes' in unique_lower and 'no' in unique_lower:
+            return best_col, 'yes'
+        elif 'positive' in unique_lower and 'negative' in unique_lower:
+            return best_col, 'positive'
+        else:
+            # Generic binary: pick the less frequent one as positive
+            counts = df[best_col].value_counts()
+            if len(counts) == 2:
+                positive_class = counts.idxmin()  # Less frequent
+                return best_col, positive_class
+    
+    return None, None
+
 def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict[str, Any]) -> list:
     """Generate simple, focused charts matching your clean approach"""
     
     charts = []
     
+    # Check for binary target variable first
+    target_col, positive_class = _detect_binary_target(df)
+    
+    if target_col:
+        # Generate target-aware charts only
+        print(f"🎯 Detected binary target: {target_col} (positive class: {positive_class})")
+        
+        # 1. Target distribution
+        target_counts = df[target_col].value_counts()
+        charts.append({
+            "type": "pie",
+            "title": f"Distribution of {target_col}",
+            "data": {
+                "labels": [str(label) for label in target_counts.index],
+                "datasets": [{
+                    "data": [float(x) for x in target_counts.values],
+                    "backgroundColor": ["#EF4444", "#10B981"][:len(target_counts)]
+                }]
+            }
+        })
+        
+        # 2. Target by category (prefer platform, country, region, author_verified)
+        categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and not col.lower().startswith('unnamed')]
+        preferred_cats = ['platform', 'country', 'region', 'author_verified', 'source_domain_reliability']
+        
+        category_col = categorical_cols[0]  # Default
+        for pref in preferred_cats:
+            for cat in categorical_cols:
+                if cat.lower() == pref:
+                    category_col = cat
+                    break
+            if category_col != categorical_cols[0]:
+                break
+        
+        # Count positive cases by category
+        positive_data = df[df[target_col] == positive_class]
+        if not positive_data.empty:
+            category_counts = positive_data[category_col].value_counts().head(10)
+            charts.append({
+                "type": "bar",
+                "title": f"{target_col}={positive_class} by {category_col}",
+                "data": {
+                    "labels": [str(label) for label in category_counts.index],
+                    "datasets": [{
+                        "label": f"{target_col}={positive_class}",
+                        "data": [float(x) for x in category_counts.values],
+                        "backgroundColor": "#EF4444"
+                    }]
+                }
+            })
+        
+        # 3. Target rate over time (if time column exists)
+        time_cols = [col for col in df.columns if any(x in col.lower() for x in ['timestamp', 'date', 'time', 'month', 'weekday'])]
+        if time_cols:
+            time_col = time_cols[0]
+            # Calculate target rate by time period
+            time_groups = df.groupby(time_col)[target_col].agg(['count', 'sum']).reset_index()
+            time_groups['rate'] = (time_groups['sum'] / time_groups['count'] * 100).round(2)
+            
+            charts.append({
+                "type": "line",
+                "title": f"{target_col} rate over {time_col} (%)",
+                "data": {
+                    "labels": [str(x) for x in time_groups[time_col]],
+                    "datasets": [{
+                        "label": f"{target_col} rate (%)",
+                        "data": [float(x) for x in time_groups['rate']],
+                        "borderColor": "#EF4444",
+                        "backgroundColor": "rgba(239, 68, 68, 0.1)",
+                        "fill": True
+                    }]
+                }
+            })
+        
+        return charts
+    
+    # Original chart generation for non-target datasets
     # 1. KPI Overview Chart
     if kpis.get('kpis'):
         kpi_data = kpis['kpis'][:5]  # Top 5 KPIs
