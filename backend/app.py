@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import analyze_endpoint, chat
+from routers import analyze_endpoint, chat, chart_preview
 
 app = FastAPI(title="InsightForge AI")
 
@@ -21,6 +21,7 @@ app.add_middleware(
 # Routers
 app.include_router(analyze_endpoint.router)
 app.include_router(chat.router)
+app.include_router(chart_preview.router)
 
 @app.get("/health")
 async def health():
