@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { AgentSidebar, Agent, AgentStatus } from "@/components/Layouts/agent-sidebar";
 import { EnhancedUpload } from "@/components/enhanced-upload";
 import { InsightDashboard, DashboardData } from "@/components/insight-dashboard";
+import { ChartBuilder } from "@/components/dashboard/ChartBuilder";
 import { ChatPanel, ChatMessage } from "@/components/chat-panel";
 import { analyzeCSV as apiAnalyzeCSV, AnalysisResult, sendChatMessage } from "@/lib/api";
 import { analyzeCSV } from "@/lib/csv-analyzer";
@@ -318,10 +319,15 @@ export default function Home() {
           )}
 
           {currentView === "dashboard" && dashboardData && (
-            <InsightDashboard 
-              data={dashboardData} 
-              isVisible={true}
-            />
+            <>
+              <InsightDashboard 
+                data={dashboardData} 
+                isVisible={true}
+              />
+              {currentRunId && (
+                <ChartBuilder runId={currentRunId} />
+              )}
+            </>
           )}
         </div>
       </div>

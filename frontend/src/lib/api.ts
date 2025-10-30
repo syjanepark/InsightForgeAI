@@ -95,3 +95,30 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
 
   return response.json();
 }
+
+// Data Explorer APIs
+export async function getChartColumns(runId: string): Promise<{ numeric: string[]; categorical: string[]; datetime: string[] }> {
+  const response = await fetch(`${API_BASE_URL}/chart/columns?run_id=${encodeURIComponent(runId)}`);
+  if (!response.ok) throw new Error(`Columns failed: ${response.status}`);
+  return response.json();
+}
+
+export async function getChartPreview(params: { run_id: string; x: string; y: string; agg?: string; chart_type?: 'bar'|'line'|'scatter'|'pie' }): Promise<{ type: string; spec: any }> {
+  const response = await fetch(`${API_BASE_URL}/chart/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  if (!response.ok) throw new Error(`Preview failed: ${response.status}`);
+  return response.json();
+}
+
+export async function summarizeCharts(params: { run_id: string; charts: Array<{ type: string; spec: any }> }): Promise<{ answer: string }> {
+  const response = await fetch(`${API_BASE_URL}/chart/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  if (!response.ok) throw new Error(`Summarize failed: ${response.status}`);
+  return response.json();
+}
