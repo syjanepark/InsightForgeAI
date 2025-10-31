@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import analyze_endpoint, chat, chart_preview
+from dotenv import load_dotenv
+
+# Ensure environment variables from .env are loaded at startup
+load_dotenv()
 
 app = FastAPI(title="InsightForge AI")
 
