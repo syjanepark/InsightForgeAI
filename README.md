@@ -10,6 +10,9 @@
 - **📈 Actionable Reports**: Clear visualizations and strategic recommendations
 - **⚡ Instant Results**: Fast analysis pipeline designed for business teams who need answers now
 
+
+## check out the screenshot section for quick insights on InsightForge & its capabilities.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
