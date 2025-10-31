@@ -15,10 +15,10 @@ def _top_kpi_summaries(df: pd.DataFrame) -> Dict[str, Any]:
                 continue
             kpis.append({
                 "metric": col,
-                "mean": float(round(row["mean"], 3)),
-                "min": float(round(row["min"], 3)),
-                "max": float(round(row["max"], 3)),
-                "std": float(round(row["std"], 3))
+                "mean": float(round(row["mean"], 3)) if pd.notna(row["mean"]) else 0.0,
+                "min": float(round(row["min"], 3)) if pd.notna(row["min"]) else 0.0,
+                "max": float(round(row["max"], 3)) if pd.notna(row["max"]) else 0.0,
+                "std": float(round(row["std"], 3)) if pd.notna(row["std"]) else 0.0
             })
     return {"kpis": kpis[:6]}
 
@@ -47,11 +47,12 @@ def _time_trends(df: pd.DataFrame) -> Dict[str, Any]:
                 s = agg[col]
                 yoy = s.pct_change().replace([np.inf,-np.inf], np.nan).dropna()
                 if not yoy.empty:
+                    yoy_last = yoy.iloc[-1]
                     trends.append({
                         "series": col,
                         "time_index": s.index.tolist(),
-                        "values": [float(x) for x in s.values],
-                        "last_yoy_pct": round(float(yoy.iloc[-1]*100), 2)
+                        "values": [float(x) if pd.notna(x) else 0.0 for x in s.values],
+                        "last_yoy_pct": round(float(yoy_last*100), 2) if pd.notna(yoy_last) else 0.0
                     })
     return {"trends": trends}
 
@@ -249,7 +250,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
             "data": {
                 "labels": [str(label) for label in target_counts.index],
                 "datasets": [{
-                    "data": [float(x) for x in target_counts.values],
+                    "data": [float(x) if pd.notna(x) else 0.0 for x in target_counts.values],
                     "backgroundColor": ["#EF4444", "#10B981"][:len(target_counts)]
                 }]
             }
@@ -279,7 +280,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                     "labels": [str(label) for label in category_counts.index],
                     "datasets": [{
                         "label": f"{target_col}={positive_class}",
-                        "data": [float(x) for x in category_counts.values],
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in category_counts.values],
                         "backgroundColor": "#EF4444"
                     }]
                 }
@@ -300,7 +301,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                     "labels": [str(x) for x in time_groups[time_col]],
                     "datasets": [{
                         "label": f"{target_col} rate (%)",
-                        "data": [float(x) for x in time_groups['rate']],
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in time_groups['rate']],
                         "borderColor": "#EF4444",
                         "backgroundColor": "rgba(239, 68, 68, 0.1)",
                         "fill": True
@@ -321,7 +322,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "labels": [k['metric'] for k in kpi_data],
                 "datasets": [{
                     "label": "Average Values",
-                    "data": [float(k['mean']) for k in kpi_data],
+                    "data": [float(k['mean']) if pd.notna(k.get('mean')) else 0.0 for k in kpi_data],
                     "backgroundColor": "#3B82F6"
                 }]
             }
@@ -337,7 +338,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "labels": [str(x) for x in trend_data['time_index']],
                 "datasets": [{
                     "label": trend_data['series'],
-                    "data": [float(x) for x in trend_data['values']],
+                    "data": [float(x) if pd.notna(x) else 0.0 for x in trend_data['values']],
                     "borderColor": "#10B981",
                     "backgroundColor": "rgba(16, 185, 129, 0.1)",
                     "fill": True
@@ -365,7 +366,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "data": {
                     "labels": [str(label) for label in grouped.index],
                     "datasets": [{
-                        "data": [float(x) for x in grouped.values],
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in grouped.values],
                         "backgroundColor": ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"][:len(grouped)]
                     }]
                 }
@@ -383,7 +384,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
             "data": {
                 "datasets": [{
                     "label": "Data Points",
-                    "data": [{"x": float(row[col1]), "y": float(row[col2])} for _, row in sample_df.iterrows()],
+                    "data": [{"x": float(row[col1]) if pd.notna(row[col1]) else 0.0, "y": float(row[col2]) if pd.notna(row[col2]) else 0.0} for _, row in sample_df.iterrows()],
                     "backgroundColor": "#3B82F6",
                     "borderColor": "#1E40AF"
                 }]
@@ -415,12 +416,14 @@ def _calculate_deltas(df: pd.DataFrame) -> Dict[str, Any]:
                     values = grouped[col]
                     if len(values) >= 2:
                         # Calculate absolute and percentage deltas
-                        abs_delta = values.iloc[-1] - values.iloc[-2] if len(values) >= 2 else 0
-                        pct_delta = ((values.iloc[-1] / values.iloc[-2]) - 1) * 100 if values.iloc[-2] != 0 and len(values) >= 2 else 0
+                        val_last = values.iloc[-1] if pd.notna(values.iloc[-1]) else 0
+                        val_prev = values.iloc[-2] if pd.notna(values.iloc[-2]) else 0
+                        abs_delta = val_last - val_prev if len(values) >= 2 else 0
+                        pct_delta = ((val_last / val_prev) - 1) * 100 if val_prev != 0 and len(values) >= 2 else 0
                         
                         deltas[col] = {
-                            "absolute": float(round(abs_delta, 2)),
-                            "percentage": float(round(pct_delta, 2)),
+                            "absolute": float(round(abs_delta, 2)) if pd.notna(abs_delta) else 0.0,
+                            "percentage": float(round(pct_delta, 2)) if pd.notna(pct_delta) else 0.0,
                             "direction": "up" if abs_delta > 0 else "down" if abs_delta < 0 else "stable"
                         }
         except Exception as e:
@@ -447,7 +450,7 @@ def _analyze_correlations(df: pd.DataFrame) -> Dict[str, Any]:
             # Convert to dict for JSON serialization (convert numpy floats to Python floats)
             matrix_dict = corr_matrix.round(3).to_dict()
             correlations["matrix"] = {
-                k1: {k2: float(v2) for k2, v2 in v1.items()} 
+                k1: {k2: float(v2) if pd.notna(v2) else 0.0 for k2, v2 in v1.items()} 
                 for k1, v1 in matrix_dict.items()
             }
             
@@ -455,7 +458,7 @@ def _analyze_correlations(df: pd.DataFrame) -> Dict[str, Any]:
             for i, col1 in enumerate(numeric_cols):
                 for col2 in numeric_cols[i+1:]:
                     corr_val = corr_matrix.loc[col1, col2]
-                    if abs(corr_val) > 0.7:
+                    if pd.notna(corr_val) and abs(corr_val) > 0.7:
                         correlations["strong_pairs"].append({
                             "var1": col1,
                             "var2": col2,
