@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -152,3 +151,6 @@ tmp/
 temp/
 *.tmp
 
+
+# Ignore Next.js build
+frontend/.next

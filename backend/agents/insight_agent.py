@@ -1,6 +1,6 @@
 import json
 from jinja2 import Template
-from services.you_smart import call_smart
+# Insight generation is fully local (no external AI dependencies)
 from core.schemas import Insight, Evidence
 
 PROMPT_TEMPLATE = """
@@ -28,37 +28,8 @@ class InsightAgent:
             kpis=[k.model_dump() for k in data_result.kpis],
             evidence=evidence
         )
-        response = call_smart(prompt)
-        try:
-            parsed = json.loads(response)
-            insights = []
-            for i in parsed.get("insights", []):
-                insights.append(
-                    Insight(
-                        title=i.get("title",""),
-                        why=i.get("why",""),
-                        recommendations=i.get("recommendations", []),
-                        evidence=[Evidence(**e) for e in evidence[:2]]
-                    )
-                )
-            return insights
-        except json.JSONDecodeError as e:
-            # If JSON parsing fails, try to extract insights from raw text
-            if "insight" in response.lower() or "analysis" in response.lower():
-                return [
-                    Insight(
-                        title="Data Analysis Summary",
-                        why=response[:500] + "..." if len(response) > 500 else response,
-                        recommendations=["Review the analysis above", "Consider additional data sources"],
-                        evidence=[Evidence(**e) for e in evidence[:2]]
-                    )
-                ]
-            else:
-                # Generate fallback insights based on the data
-                return self._generate_fallback_insights(data_result, evidence)
-        except Exception as e:
-            # Generate fallback insights
-            return self._generate_fallback_insights(data_result, evidence)
+        # Generate local insights (no external AI)
+        return self._generate_fallback_insights(data_result, evidence)
     
     def _generate_fallback_insights(self, data_result, evidence):
         """Generate fallback insights when API fails"""

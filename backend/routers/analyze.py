@@ -15,10 +15,10 @@ def _top_kpi_summaries(df: pd.DataFrame) -> Dict[str, Any]:
                 continue
             kpis.append({
                 "metric": col,
-                "mean": float(round(row["mean"], 3)),
-                "min": float(round(row["min"], 3)),
-                "max": float(round(row["max"], 3)),
-                "std": float(round(row["std"], 3))
+                "mean": float(round(row["mean"], 3)) if pd.notna(row["mean"]) else 0.0,
+                "min": float(round(row["min"], 3)) if pd.notna(row["min"]) else 0.0,
+                "max": float(round(row["max"], 3)) if pd.notna(row["max"]) else 0.0,
+                "std": float(round(row["std"], 3)) if pd.notna(row["std"]) else 0.0
             })
     return {"kpis": kpis[:6]}
 
@@ -47,11 +47,12 @@ def _time_trends(df: pd.DataFrame) -> Dict[str, Any]:
                 s = agg[col]
                 yoy = s.pct_change().replace([np.inf,-np.inf], np.nan).dropna()
                 if not yoy.empty:
+                    yoy_last = yoy.iloc[-1]
                     trends.append({
                         "series": col,
                         "time_index": s.index.tolist(),
-                        "values": [float(x) for x in s.values],
-                        "last_yoy_pct": round(float(yoy.iloc[-1]*100), 2)
+                        "values": [float(x) if pd.notna(x) else 0.0 for x in s.values],
+                        "last_yoy_pct": round(float(yoy_last*100), 2) if pd.notna(yoy_last) else 0.0
                     })
     return {"trends": trends}
 
@@ -149,11 +150,168 @@ def generate_analysis(df: pd.DataFrame) -> Dict[str, Any]:
         "qa_context": "\n".join(context_lines)
     })
 
+def _detect_binary_target(df: pd.DataFrame) -> tuple:
+    """Detect binary target variable in the dataset - completely dynamic"""
+    
+    # Find all binary columns (exactly 2 unique values)
+    binary_cols = []
+    for col in df.columns:
+        unique_vals = df[col].dropna().unique()
+        if len(unique_vals) == 2:
+            binary_cols.append(col)
+    
+    if not binary_cols:
+        return None, None
+    
+    # Score columns by how likely they are to be targets
+    # Higher score = more likely to be target
+    scored_cols = []
+    
+    for col in binary_cols:
+        score = 0
+        col_lower = col.lower()
+        
+        # Target-like keywords (generic, not hardcoded)
+        target_keywords = ['target', 'label', 'class', 'outcome', 'result', 'flag', 'status', 'type', 'category']
+        for keyword in target_keywords:
+            if keyword in col_lower:
+                score += 10
+        
+        # Binary pattern keywords
+        binary_keywords = ['is_', 'has_', 'can_', 'should_', 'will_', 'did_', 'was_', 'were_']
+        for keyword in binary_keywords:
+            if col_lower.startswith(keyword):
+                score += 5
+        
+        # Avoid obvious non-targets
+        avoid_keywords = ['id', 'index', 'count', 'num_', 'total_', 'sum_', 'avg_', 'mean_', 'max_', 'min_']
+        for keyword in avoid_keywords:
+            if keyword in col_lower:
+                score -= 5
+        
+        # Prefer columns with balanced distribution (not too skewed)
+        value_counts = df[col].value_counts()
+        if len(value_counts) == 2:
+            ratio = min(value_counts) / max(value_counts)
+            if 0.2 <= ratio <= 0.8:  # Balanced distribution
+                score += 3
+            elif ratio < 0.1:  # Very skewed
+                score -= 2
+        
+        scored_cols.append((col, score))
+    
+    # Sort by score (highest first) and pick the best one
+    scored_cols.sort(key=lambda x: x[1], reverse=True)
+    
+    if not scored_cols or scored_cols[0][1] < 0:
+        return None, None
+    
+    best_col = scored_cols[0][0]
+    unique_vals = df[best_col].dropna().unique()
+    
+    # Determine positive class
+    if df[best_col].dtype in ['int64', 'float64'] and set(unique_vals) == {0, 1}:
+        return best_col, 1
+    elif df[best_col].dtype == 'object':
+        # Check for common binary text patterns
+        unique_lower = [str(v).lower() for v in unique_vals]
+        if 'true' in unique_lower and 'false' in unique_lower:
+            return best_col, 'true'
+        elif 'yes' in unique_lower and 'no' in unique_lower:
+            return best_col, 'yes'
+        elif 'positive' in unique_lower and 'negative' in unique_lower:
+            return best_col, 'positive'
+        else:
+            # Generic binary: pick the less frequent one as positive
+            counts = df[best_col].value_counts()
+            if len(counts) == 2:
+                positive_class = counts.idxmin()  # Less frequent
+                return best_col, positive_class
+    
+    return None, None
+
 def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict[str, Any]) -> list:
     """Generate simple, focused charts matching your clean approach"""
     
     charts = []
     
+    # Check for binary target variable first
+    target_col, positive_class = _detect_binary_target(df)
+    
+    if target_col:
+        # Generate target-aware charts only
+        print(f"🎯 Detected binary target: {target_col} (positive class: {positive_class})")
+        
+        # 1. Target distribution
+        target_counts = df[target_col].value_counts()
+        charts.append({
+            "type": "pie",
+            "title": f"Distribution of {target_col}",
+            "data": {
+                "labels": [str(label) for label in target_counts.index],
+                "datasets": [{
+                    "data": [float(x) if pd.notna(x) else 0.0 for x in target_counts.values],
+                    "backgroundColor": ["#EF4444", "#10B981"][:len(target_counts)]
+                }]
+            }
+        })
+        
+        # 2. Target by category (prefer platform, country, region, author_verified)
+        categorical_cols = [col for col in df.columns if df[col].dtype == 'object' and not col.lower().startswith('unnamed')]
+        preferred_cats = ['platform', 'country', 'region', 'author_verified', 'source_domain_reliability']
+        
+        category_col = categorical_cols[0]  # Default
+        for pref in preferred_cats:
+            for cat in categorical_cols:
+                if cat.lower() == pref:
+                    category_col = cat
+                    break
+            if category_col != categorical_cols[0]:
+                break
+        
+        # Count positive cases by category
+        positive_data = df[df[target_col] == positive_class]
+        if not positive_data.empty:
+            category_counts = positive_data[category_col].value_counts().head(10)
+            charts.append({
+                "type": "bar",
+                "title": f"{target_col}={positive_class} by {category_col}",
+                "data": {
+                    "labels": [str(label) for label in category_counts.index],
+                    "datasets": [{
+                        "label": f"{target_col}={positive_class}",
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in category_counts.values],
+                        "backgroundColor": "#EF4444"
+                    }]
+                }
+            })
+        
+        # 3. Target rate over time (if time column exists)
+        time_cols = [col for col in df.columns if any(x in col.lower() for x in ['timestamp', 'date', 'time', 'month', 'weekday'])]
+        if time_cols:
+            time_col = time_cols[0]
+            # Calculate target rate by time period
+            time_groups = df.groupby(time_col)[target_col].agg(['count', 'sum']).reset_index()
+            time_groups['rate'] = (time_groups['sum'] / time_groups['count'] * 100).round(2)
+            
+            charts.append({
+                "type": "line",
+                "title": f"{target_col} rate over {time_col} (%)",
+                "data": {
+                    "labels": [str(x) for x in time_groups[time_col]],
+                    "datasets": [{
+                        "label": f"{target_col} rate (%)",
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in time_groups['rate']],
+                        "borderColor": "#EF4444",
+                        "backgroundColor": "rgba(239, 68, 68, 0.1)",
+                        "fill": True
+                    }]
+                }
+            })
+        
+        return charts
+    
+    # Original chart generation for non-target datasets
     # 1. KPI Overview Chart
     if kpis.get('kpis'):
         kpi_data = kpis['kpis'][:5]  # Top 5 KPIs
@@ -164,7 +322,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "labels": [k['metric'] for k in kpi_data],
                 "datasets": [{
                     "label": "Average Values",
-                    "data": [float(k['mean']) for k in kpi_data],
+                    "data": [float(k['mean']) if pd.notna(k.get('mean')) else 0.0 for k in kpi_data],
                     "backgroundColor": "#3B82F6"
                 }]
             }
@@ -180,7 +338,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "labels": [str(x) for x in trend_data['time_index']],
                 "datasets": [{
                     "label": trend_data['series'],
-                    "data": [float(x) for x in trend_data['values']],
+                    "data": [float(x) if pd.notna(x) else 0.0 for x in trend_data['values']],
                     "borderColor": "#10B981",
                     "backgroundColor": "rgba(16, 185, 129, 0.1)",
                     "fill": True
@@ -208,7 +366,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
                 "data": {
                     "labels": [str(label) for label in grouped.index],
                     "datasets": [{
-                        "data": [float(x) for x in grouped.values],
+                        "data": [float(x) if pd.notna(x) else 0.0 for x in grouped.values],
                         "backgroundColor": ["#3B82F6", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"][:len(grouped)]
                     }]
                 }
@@ -226,7 +384,7 @@ def _generate_simple_charts(df: pd.DataFrame, kpis: Dict[str, Any], trends: Dict
             "data": {
                 "datasets": [{
                     "label": "Data Points",
-                    "data": [{"x": float(row[col1]), "y": float(row[col2])} for _, row in sample_df.iterrows()],
+                    "data": [{"x": float(row[col1]) if pd.notna(row[col1]) else 0.0, "y": float(row[col2]) if pd.notna(row[col2]) else 0.0} for _, row in sample_df.iterrows()],
                     "backgroundColor": "#3B82F6",
                     "borderColor": "#1E40AF"
                 }]
@@ -258,12 +416,14 @@ def _calculate_deltas(df: pd.DataFrame) -> Dict[str, Any]:
                     values = grouped[col]
                     if len(values) >= 2:
                         # Calculate absolute and percentage deltas
-                        abs_delta = values.iloc[-1] - values.iloc[-2] if len(values) >= 2 else 0
-                        pct_delta = ((values.iloc[-1] / values.iloc[-2]) - 1) * 100 if values.iloc[-2] != 0 and len(values) >= 2 else 0
+                        val_last = values.iloc[-1] if pd.notna(values.iloc[-1]) else 0
+                        val_prev = values.iloc[-2] if pd.notna(values.iloc[-2]) else 0
+                        abs_delta = val_last - val_prev if len(values) >= 2 else 0
+                        pct_delta = ((val_last / val_prev) - 1) * 100 if val_prev != 0 and len(values) >= 2 else 0
                         
                         deltas[col] = {
-                            "absolute": float(round(abs_delta, 2)),
-                            "percentage": float(round(pct_delta, 2)),
+                            "absolute": float(round(abs_delta, 2)) if pd.notna(abs_delta) else 0.0,
+                            "percentage": float(round(pct_delta, 2)) if pd.notna(pct_delta) else 0.0,
                             "direction": "up" if abs_delta > 0 else "down" if abs_delta < 0 else "stable"
                         }
         except Exception as e:
@@ -290,7 +450,7 @@ def _analyze_correlations(df: pd.DataFrame) -> Dict[str, Any]:
             # Convert to dict for JSON serialization (convert numpy floats to Python floats)
             matrix_dict = corr_matrix.round(3).to_dict()
             correlations["matrix"] = {
-                k1: {k2: float(v2) for k2, v2 in v1.items()} 
+                k1: {k2: float(v2) if pd.notna(v2) else 0.0 for k2, v2 in v1.items()} 
                 for k1, v1 in matrix_dict.items()
             }
             
@@ -298,7 +458,7 @@ def _analyze_correlations(df: pd.DataFrame) -> Dict[str, Any]:
             for i, col1 in enumerate(numeric_cols):
                 for col2 in numeric_cols[i+1:]:
                     corr_val = corr_matrix.loc[col1, col2]
-                    if abs(corr_val) > 0.7:
+                    if pd.notna(corr_val) and abs(corr_val) > 0.7:
                         correlations["strong_pairs"].append({
                             "var1": col1,
                             "var2": col2,

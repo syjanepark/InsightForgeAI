@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import NextTopLoader from "nextjs-toploader";
 import type { PropsWithChildren } from "react";
 import { Providers } from "./providers";
+import { ToastManager } from "@/components/ui/toast";
+import { ScreenLoaderProvider } from "@/components/ui/ScreenLoader";
 
 export const metadata: Metadata = {
   title: {
@@ -19,11 +21,12 @@ export default function RootLayout({ children }: PropsWithChildren) {
     <html lang="en" suppressHydrationWarning>
       <body>
         <Providers>
+          <ToastManager />
           <NextTopLoader color="#8B7CF6" showSpinner={false} />
           
           {/* Main Content Area */}
           <main className="min-h-screen">
-            {children}
+            <ScreenLoaderProvider>{children}</ScreenLoaderProvider>
           </main>
         </Providers>
       </body>

@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { AgentSidebar, Agent, AgentStatus } from "@/components/Layouts/agent-sidebar";
 import { EnhancedUpload } from "@/components/enhanced-upload";
 import { InsightDashboard, DashboardData } from "@/components/insight-dashboard";
+import { ChartBuilder } from "@/components/dashboard/ChartBuilder";
 import { ChatPanel, ChatMessage } from "@/components/chat-panel";
 import { analyzeCSV as apiAnalyzeCSV, AnalysisResult, sendChatMessage } from "@/lib/api";
 import { analyzeCSV } from "@/lib/csv-analyzer";
+import { showInfo } from "@/components/ui/toast";
+import { useScreenLoader } from "@/components/ui/ScreenLoader";
 
 export default function Home() {
   const [currentView, setCurrentView] = useState<"upload" | "dashboard">("upload");
@@ -51,12 +54,13 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
-
+  const { showLoader, hideLoader } = useScreenLoader();
   // Simulate AI agents working
   async function simulateAgentWork() {
     const agentOrder = ["data-analyst", "researcher", "insight-generator", "advisor"];
     
     for (let i = 0; i < agentOrder.length; i++) {
+      showLoader();
       const agentId = agentOrder[i];
       
       // Set agent to active
@@ -84,14 +88,17 @@ export default function Home() {
       ));
 
       await new Promise(resolve => setTimeout(resolve, 500));
+      hideLoader();
     }
   }
 
   async function handleUpload(file: File) {
+    showLoader();
     setLoading(true);
     setError(null);
     
     try {
+      showInfo(`Uploading ${file.name}...`);
       console.log('🚀 Starting upload process for file:', file.name);
       
       // Update agents with more specific status messages
@@ -145,7 +152,7 @@ export default function Home() {
           : agent.id === "advisor" ? "Ready to provide recommendations"
           : agent.description
       })));
-
+      hideLoader();
       // Add welcome message to chat with specific insights
       const welcomeMessage: ChatMessage = {
         id: Date.now().toString(),
@@ -170,6 +177,7 @@ export default function Home() {
       })));
     } finally {
       setLoading(false);
+      hideLoader();
     }
   }
 
@@ -271,15 +279,20 @@ export default function Home() {
         <div className="glass-card mx-6 mt-6 mb-8 p-6 border-b border-white/20">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-deep-indigo">
+              <h1
+              aria-label="InsightForge Home"
+              className="text-2xl font-bold text-deep-indigo">
                 InsightForge
               </h1>
-              <p className="text-deep-indigo/70">Enterprise Data Intelligence</p>
+              <p
+                aria-label="InsightForge Home Subtitle Enterprise Data Intelligence"
+                className="text-deep-indigo/70">Enterprise Data Intelligence</p>
             </div>
             {currentView === "dashboard" && (
               <button
+                aria-label="Select New File to Analyze"
                 onClick={resetAnalysis}
-                className="px-4 py-2 glass-card border border-white/30 text-deep-indigo hover:text-primary transition-colors rounded-lg hover-lift"
+                className="px-4 py-2 glass-card border border-white/30 text-deep-indigo hover:text-primary transition-colors rounded-lg hover-lift bg-cololr-violet text-white"
               >
                 Analyze New File
               </button>
@@ -301,6 +314,7 @@ export default function Home() {
                 </div>
               </div>
               <button
+                aria-label="Analysis Failed ! Try Again by uploading a new file"
                 onClick={resetAnalysis}
                 className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
@@ -318,10 +332,15 @@ export default function Home() {
           )}
 
           {currentView === "dashboard" && dashboardData && (
-            <InsightDashboard 
-              data={dashboardData} 
-              isVisible={true}
-            />
+            <>
+              <InsightDashboard 
+                data={dashboardData} 
+                isVisible={true}
+              />
+              {currentRunId && (
+                <ChartBuilder runId={currentRunId} />
+              )}
+            </>
           )}
         </div>
       </div>

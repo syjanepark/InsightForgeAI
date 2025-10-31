@@ -75,6 +75,7 @@ export function Sidebar() {
 
             {isMobile && (
               <button
+                aria-label="Close Menu"
                 onClick={toggleSidebar}
                 className="absolute left-3/4 right-4.5 top-1/2 -translate-y-1/2 text-right"
               >

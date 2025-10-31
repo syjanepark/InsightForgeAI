@@ -3,7 +3,6 @@ import pandas as pd
 import io
 from typing import List, Dict, Any
 from agents.data_agent import DataAgent
-from agents.research_agent import ResearchAgent
 from agents.insight_agent import InsightAgent
 from core.schemas import AnalyzeResponse
 from core.cache import cache_get, cache_set
@@ -14,7 +13,7 @@ from core.chart_generator import generate_business_charts
 class Orchestrator:
     def __init__(self):
         self.data_agent = DataAgent()
-        self.research_agent = ResearchAgent()
+        self.research_agent = None
         self.insight_agent = InsightAgent()
 
     async def run(self, file_bytes: bytes, filename: str = "dataset.csv") -> AnalyzeResponse:
@@ -49,12 +48,7 @@ class Orchestrator:
             if cached:
                 evidence.extend(cached)
                 continue
-            try:
-                res = await self.research_agent.query(kw)
-                cache_set(kw, res)
-                evidence.extend(res)
-            except Exception as e:
-                print(f"⚠️  Research failed for '{kw}': {e}")
+            # Research agent disabled
         
         # Step 5: Legacy data analysis (for compatibility)
         data_result = self.data_agent.analyze(file_bytes)

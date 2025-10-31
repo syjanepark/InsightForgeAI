@@ -17,6 +17,10 @@ interface ChartProps {
   delay?: number;
 }
 
+function fmt(val: any) {
+  return typeof val === 'number' ? val.toLocaleString() : val;
+}
+
 export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay = 0 }: ChartProps) {
   if (!data || data.length === 0) {
     return (
@@ -34,7 +38,7 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
-            <p className="text-sm text-deep-indigo/60">Processing your data...</p>
+            <p className="text-sm text-deep-indigo/60">No Data Available for the metrics, please change the above Metric & try again...</p>
           </div>
         </div>
       </div>
@@ -59,11 +63,13 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <YAxis 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <Tooltip 
                 contentStyle={{
@@ -73,13 +79,14 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                   boxShadow: '0 8px 25px rgba(139, 124, 246, 0.15)',
                   backdropFilter: 'blur(10px)'
                 }}
+                formatter={(v: any) => fmt(v) as any}
               />
               <Line 
                 type="monotone" 
                 dataKey={yKey} 
                 stroke="#8B7CF6" 
-                strokeWidth={3}
-                dot={{ fill: '#8B7CF6', strokeWidth: 2, r: 4 }}
+                strokeWidth={2.5}
+                dot={data.length > 60 ? false : { fill: '#8B7CF6', strokeWidth: 1.5, r: 3 }}
                 activeDot={{ r: 6, fill: '#A78BFA' }}
               />
             </LineChart>
@@ -93,11 +100,13 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <YAxis 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <Tooltip 
                 contentStyle={{
@@ -107,6 +116,7 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                   boxShadow: '0 8px 25px rgba(139, 124, 246, 0.15)',
                   backdropFilter: 'blur(10px)'
                 }}
+                formatter={(v: any) => fmt(v) as any}
               />
               <Bar dataKey={yKey} radius={[4, 4, 0, 0]}>
                 {data.map((entry, index) => (
