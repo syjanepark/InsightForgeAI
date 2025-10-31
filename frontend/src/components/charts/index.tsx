@@ -17,6 +17,10 @@ interface ChartProps {
   delay?: number;
 }
 
+function fmt(val: any) {
+  return typeof val === 'number' ? val.toLocaleString() : val;
+}
+
 export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay = 0 }: ChartProps) {
   if (!data || data.length === 0) {
     return (
@@ -59,11 +63,13 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <YAxis 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <Tooltip 
                 contentStyle={{
@@ -73,13 +79,14 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                   boxShadow: '0 8px 25px rgba(139, 124, 246, 0.15)',
                   backdropFilter: 'blur(10px)'
                 }}
+                formatter={(v: any) => fmt(v) as any}
               />
               <Line 
                 type="monotone" 
                 dataKey={yKey} 
                 stroke="#8B7CF6" 
-                strokeWidth={3}
-                dot={{ fill: '#8B7CF6', strokeWidth: 2, r: 4 }}
+                strokeWidth={2.5}
+                dot={data.length > 60 ? false : { fill: '#8B7CF6', strokeWidth: 1.5, r: 3 }}
                 activeDot={{ r: 6, fill: '#A78BFA' }}
               />
             </LineChart>
@@ -93,11 +100,13 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <YAxis 
                 stroke="#312E81" 
                 fontSize={12}
                 tick={{ fill: '#312E81' }}
+                tickFormatter={fmt}
               />
               <Tooltip 
                 contentStyle={{
@@ -107,6 +116,7 @@ export function Chart({ title, data, type, xKey = 'name', yKey = 'value', delay 
                   boxShadow: '0 8px 25px rgba(139, 124, 246, 0.15)',
                   backdropFilter: 'blur(10px)'
                 }}
+                formatter={(v: any) => fmt(v) as any}
               />
               <Bar dataKey={yKey} radius={[4, 4, 0, 0]}>
                 {data.map((entry, index) => (

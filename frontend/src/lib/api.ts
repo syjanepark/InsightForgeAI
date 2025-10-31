@@ -113,6 +113,12 @@ export async function getChartPreview(params: { run_id: string; x: string; y: st
   return response.json();
 }
 
+export async function getDistinctValues(runId: string, column: string, limit: number = 50): Promise<{ values: string[]; counts?: number[] }> {
+  const response = await fetch(`${API_BASE_URL}/chart/distinct?run_id=${encodeURIComponent(runId)}&column=${encodeURIComponent(column)}&limit=${limit}`);
+  if (!response.ok) throw new Error(`Distinct failed: ${response.status}`);
+  return response.json();
+}
+
 export async function summarizeCharts(params: { run_id: string; charts: Array<{ type: string; spec: any }> }): Promise<{ answer: string }> {
   const response = await fetch(`${API_BASE_URL}/chart/summarize`, {
     method: 'POST',
