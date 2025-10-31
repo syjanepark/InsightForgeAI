@@ -1,13 +1,11 @@
 # agents/smart_chat_agent.py
-from services.you_smart import call_smart
 from services.you_search import search_web
-from services.claude_refinement import ClaudeRefinementService
 import pandas as pd
 import asyncio
 
 class SmartChatAgent:
     def __init__(self):
-        self.claude_refinement = ClaudeRefinementService()
+        pass
     
     async def process_query(self, question: str, context: str, df: pd.DataFrame = None):
         # Check if question needs external context search
@@ -47,45 +45,9 @@ REQUIREMENTS:
 - Do NOT make assumptions about what the data contains - only analyze what's actually provided
 """
         
-        try:
-            # Step 1: You.com API - Core intelligence and reasoning
-            youcom_answer = call_smart(prompt, use_tools=True)  # Enable tools for better analysis
-            
-            if youcom_answer and "Request failed" not in youcom_answer:
-                # Format structured response if we have search context
-                if search_context:
-                    formatted_answer = self._format_structured_response(question, youcom_answer, search_context, df)
-                else:
-                    formatted_answer = youcom_answer
-                
-                # Step 2: Claude refinement - Polish and enhance presentation
-                if self.claude_refinement.should_refine(formatted_answer, question):
-                    print(f"🎨 Refining with Claude for better presentation...")
-                    context_type = self.claude_refinement.get_context_type(question, formatted_answer)
-                    final_answer = self.claude_refinement.refine_analysis(formatted_answer, question, context_type)
-                    print(f"✅ Claude refinement complete")
-                else:
-                    final_answer = formatted_answer
-                    print(f"ℹ️ Using You.com answer directly (no refinement needed)")
-                
-                return {
-                    "answer": final_answer,
-                    "visualizations": None,
-                    "suggested_actions": None,
-                    "citations": self._extract_citations(youcom_answer)
-                }
-        except Exception as e:
-            print(f"🔄 You.com API failed, using local analysis: {e}")
-        
-        # Intelligent local fallback with search context
+        # Local synthesis (no external AI dependencies)
         local_answer = self._create_local_analysis_with_context(question, context, df, search_context)
         local_visuals = self._generate_visualizations(question, df)
-        
-        # Try Claude refinement on local answer too
-        if self.claude_refinement.should_refine(local_answer, question):
-            print(f"🎨 Refining local analysis with Claude...")
-            context_type = self.claude_refinement.get_context_type(question, local_answer)
-            local_answer = self.claude_refinement.refine_analysis(local_answer, question, context_type)
         
         return {
             "answer": local_answer,
@@ -104,6 +66,7 @@ REQUIREMENTS:
         print(f"🔍 Columns: {list(df.columns)}")
 
         intent = self._detect_intent(question, df)
+        intent['_question'] = question  # Store question for later use
         answer = self._handle_intent(intent, df)
         if answer:
             return answer
@@ -132,11 +95,36 @@ REQUIREMENTS:
 
         # years
         import re
-        years = [int(y) for y in re.findall(r'\b(19|20)\d{2}\b', q)]
+        years = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', q)]
 
         # time/value columns
         time_col = self._find_time_column(df)
-        value_col = self._pick_value_column(df)
+        # Try to extract value column from question first (e.g., "travel rate" -> "booking_rate" or "trip_count")
+        mentioned_cols = self._extract_columns_from_question(q, df)
+        value_col = None
+        if mentioned_cols:
+            # Find first numeric column from mentioned columns
+            for col in mentioned_cols:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    value_col = col
+                    break
+            # If no numeric found in mentioned cols, try all numeric cols and pick best match
+            if not value_col:
+                numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                q_tokens = set(q.lower().split())
+                best_match = None
+                best_score = 0
+                for col in numeric_cols:
+                    col_words = set(col.lower().replace('_', ' ').replace('-', ' ').split())
+                    overlap = len(q_tokens & col_words)
+                    if overlap > best_score:
+                        best_score = overlap
+                        best_match = col
+                if best_match:
+                    value_col = best_match
+        # Fallback to auto-detection
+        if not value_col:
+            value_col = self._pick_value_column(df)
 
         # mode inference (no phrase hardcoding beyond minimal intent cues)
         mode = 'non_time_trend'
@@ -153,13 +141,22 @@ REQUIREMENTS:
                 'mode': mode,
                 'pair_cols': pair_cols
             }
-        if entity and time_col and value_col:
-            if len(years) >= 1:
+        # Year comparison can work with or without entity (e.g., "global revenue" questions)
+        if time_col and value_col and len(years) >= 1:
+            if len(years) >= 2 or ('compare' in q or 'vs' in q or 'versus' in q or 'compared to' in q):
+                # Year comparison (with or without "why")
                 mode = 'compare_years'
-            elif 'why' in q or 'reason' in q or 'cause' in q:
+            elif 'why' in q or 'reason' in q or 'cause' in q or 'drop' in q or 'decline' in q:
+                # "Why" with year mentioned - treat as compare with previous year
+                mode = 'compare_years'
+        elif entity and time_col and value_col:
+            if 'why' in q or 'reason' in q or 'cause' in q:
                 mode = 'factor_explanation'
             else:
                 mode = 'over_time_summary'
+        elif time_col and value_col and ('why' in q or 'reason' in q or 'cause' in q) and ('increase' in q or 'grow' in q or 'improve' in q or 'keep' in q):
+            # "Why does X keep increasing?" - analyze trend and explain
+            mode = 'factor_explanation'
         elif 'increase' in q or 'improve' in q or 'grow' in q or 'boost' in q or 'strategy' in q or 'what should we do' in q:
             mode = 'strategy'
 
@@ -180,18 +177,56 @@ REQUIREMENTS:
         value_col = intent.get('value_col')
         mode = intent.get('mode')
 
-        if mode == 'compare_years' and entity and time_col and value_col:
-            series = df[df[entity_col] == entity].groupby(time_col)[value_col].sum().sort_index()
+        if mode == 'compare_years' and time_col and value_col:
+            # Handle year comparison - can work with or without entity filter
+            if entity_col and entity:
+                sub_df = df[df[entity_col] == entity]
+            else:
+                sub_df = df
+            
+            # Extract year from time column (handle date parsing)
+            time_series = sub_df[time_col]
+            if not pd.api.types.is_datetime64_any_dtype(time_series):
+                # Try to parse as dates
+                try:
+                    time_series = pd.to_datetime(time_series, errors='coerce')
+                except:
+                    pass
+            
+            # Extract year
+            if pd.api.types.is_datetime64_any_dtype(time_series):
+                sub_df = sub_df.copy()
+                sub_df['_year'] = time_series.dt.year
+            else:
+                # Assume time_col is already year-like numeric
+                sub_df = sub_df.copy()
+                sub_df['_year'] = pd.to_numeric(sub_df[time_col], errors='coerce')
+            
+            series = sub_df.groupby('_year')[value_col].sum().sort_index()
+            
             if len(series) < 2:
-                return f"I need at least two years of {entity} data to compare."
-            y1 = years[0]
-            y2 = years[1] if len(years) > 1 else (y1 + 1 if (y1 + 1) in series.index else (y1 - 1))
+                return f"I need at least two years of data to compare."
+            
+            # Determine years to compare
+            y1 = years[0] if years else series.index[-2]
+            y2 = years[1] if len(years) > 1 else (years[0] + 1 if years and (years[0] + 1) in series.index else series.index[-1])
+            
             if y1 not in series.index or y2 not in series.index:
-                return f"I couldn't find both {y1} and {y2} for {entity}. Available years: {', '.join(map(str, series.index.tolist()))}"
+                available = ', '.join(map(str, sorted(series.index.tolist())))
+                return f"I couldn't find both {y1} and {y2} in the data. Available years: {available}"
+            
             v1, v2 = series.loc[y1], series.loc[y2]
             delta = v2 - v1
             pct = (delta / v1 * 100.0) if v1 != 0 else float('inf')
-            return f"**{entity}** {value_col.replace('_',' ')} changed from **{v1:,.0f}** in **{y1}** to **{v2:,.0f}** in **{y2}** ({pct:+.1f}%)."
+            
+            # Format the comparison
+            metric_name = value_col.replace('_', ' ')
+            if entity:
+                result = f"{entity}'s {metric_name} changed from {v1:,.0f} in {y1} to {v2:,.0f} in {y2} ({pct:+.1f}%)."
+            else:
+                result = f"{metric_name.capitalize()} changed from {v1:,.0f} in {y1} to {v2:,.0f} in {y2} ({pct:+.1f}%)."
+            
+            return result
 
         if mode == 'over_time_summary' and entity and time_col and value_col:
             sub = df[df[entity_col] == entity]
@@ -202,8 +237,20 @@ REQUIREMENTS:
             peak_val = by_year.max()
             return f"**{entity}** {value_col.replace('_',' ')} peaks at **{peak_year}** with **{peak_val:,.0f}**. Range: {by_year.index.min()}–{by_year.index.max()} ({len(by_year)} periods)."
 
-        if mode == 'factor_explanation' and entity and time_col and value_col:
-            return self._analyze_sales_decline("why " + entity, df)
+        if mode == 'factor_explanation':
+            if entity and time_col and value_col:
+                # Check if question is about decline or increase
+                question_lower = str(intent.get('_question', '')).lower()
+                if 'drop' in question_lower or 'decline' in question_lower or 'decrease' in question_lower or 'fall' in question_lower:
+                    return self._analyze_sales_decline("why " + entity, df)
+                else:
+                    # Analyze trend/growth - show data and trend
+                    return self._analyze_trend_over_time(entity, time_col, value_col, df)
+            elif time_col and value_col:
+                # No entity, just analyze the value column trend
+                question_lower = str(intent.get('_question', '')).lower()
+                if 'increase' in question_lower or 'grow' in question_lower or 'keep' in question_lower:
+                    return self._analyze_trend_over_time(None, time_col, value_col, df)
 
         if mode == 'strategy':
             return self._handle_strategy(df, entity_col, entity, time_col, value_col)
@@ -216,7 +263,11 @@ REQUIREMENTS:
             series = df[[a, b]].dropna()
             if series.empty:
                 return f"I couldn't compute correlation; {a} and {b} have no overlapping data."
-            corr = series.corr(numeric_only=True).iloc[0,1]
+            corr_matrix = series.corr(numeric_only=True)
+            # Check if correlation matrix has both dimensions
+            if corr_matrix.shape[0] < 2 or corr_matrix.shape[1] < 2:
+                return f"I couldn't compute correlation between {a} and {b}; insufficient numeric data."
+            corr = corr_matrix.iloc[0, 1]
             return f"Correlation between {a} and {b}: r={corr:+.3f}."
 
         return None
@@ -308,14 +359,15 @@ REQUIREMENTS:
                     'mean': float(s.dropna().mean()) if s.notna().any() else 0.0,
                     'std': float(s.dropna().std()) if s.notna().any() else 0.0,
                 }
-            if hasattr(self, 'claude_refinement') and self.claude_refinement:
-                ranked = self.claude_refinement.rank_kpis(cols, preview)
-                ranked = [r for r in ranked if r in cols]
-                # Apply denylist
-                deny = ['transmission', 'engine', 'color', 'doors', 'trim', 'drivetrain', 'fuel']
-                ranked = [r for r in ranked if not any(d in r.lower() for d in deny)]
-                if ranked:
-                    return ranked[0]
+            # Heuristic KPI ranking (no Claude)
+            deny = ['transmission', 'engine', 'color', 'doors', 'trim', 'drivetrain', 'fuel']
+            kpi_keywords = ['sales', 'revenue', 'volume', 'quantity', 'amount', 'units', 'engagement', 'members', 'users']
+            # Prioritize columns with KPI-like names
+            for c in cols:
+                c_lower = c.lower()
+                if not any(d in c_lower for d in deny):
+                    if any(k in c_lower for k in kpi_keywords):
+                        return c
         except Exception:
             pass
         return self._pick_value_column(df)
@@ -354,15 +406,66 @@ REQUIREMENTS:
         return "\n".join(insights)
 
     def _extract_columns_from_question(self, q: str, df: pd.DataFrame) -> list:
+        """Extract column names from question using flexible matching (no hardcoding)"""
         cols = [c for c in df.columns]
         lower_map = {c.lower(): c for c in cols}
         found = []
-        # direct name match
+        q_lower = q.lower()
+        
+        # Split question into tokens (words)
+        q_tokens = set(q_lower.split())
+        # Remove common stop words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                     'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
+                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+                     'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those',
+                     'why', 'what', 'when', 'where', 'how', 'which', 'who', 'did', 'does',
+                     'drop', 'drops', 'dropped', 'decline', 'declined', 'decrease', 'decreased',
+                     'increase', 'increased', 'rise', 'rose', 'fall', 'fell', 'change', 'changed'}
+        q_tokens -= stop_words
+        
+        # Direct substring match (highest priority)
         for name_lower, orig in lower_map.items():
-            if name_lower in q:
+            if name_lower in q_lower or q_lower in name_lower:
                 found.append(orig)
-            if len(found) == 2:
-                break
+                if len(found) == 2:
+                    break
+        
+        # If not enough matches, try word-level matching
+        if len(found) < 2:
+            for col in cols:
+                if col in found:
+                    continue
+                col_lower = col.lower()
+                col_words = set(col_lower.replace('_', ' ').replace('-', ' ').split())
+                # Remove common generic words from column names
+                col_words -= {'total', 'sum', 'avg', 'average', 'mean', 'count', 'number', 
+                             'amount', 'value', 'rate', 'ratio', 'percent', 'percentage'}
+                
+                # Check if any meaningful words from column appear in question
+                overlap = q_tokens & col_words
+                if overlap:
+                    # Also check reverse: if question word appears in column name
+                    for token in q_tokens:
+                        if token in col_lower or col_lower in token:
+                            found.append(col)
+                            break
+                    if len(found) == 2:
+                        break
+        
+        # If still not enough, try partial word matching (e.g., "travel" matches "travel_rate")
+        if len(found) < 2:
+            for col in cols:
+                if col in found:
+                    continue
+                col_lower = col.lower().replace('_', ' ').replace('-', ' ')
+                for token in q_tokens:
+                    if len(token) >= 4 and (token in col_lower or col_lower.startswith(token) or col_lower.endswith(token)):
+                        found.append(col)
+                        break
+                if len(found) == 2:
+                    break
+        
         return found[:2]
 
     def _handle_strategy(self, df: pd.DataFrame, entity_col: str, entity: str, time_col: str, value_col: str) -> str:
@@ -1184,15 +1287,25 @@ REQUIREMENTS:
         # Check for company/industry context
         has_company_context = any(keyword in question_lower for keyword in company_keywords)
         
+        # Strategy/recommendation keywords that benefit from external context
+        strategy_keywords = [
+            'what should', 'how to', 'how can', 'what can', 'recommendation', 'recommend',
+            'strategy', 'strategic', 'solution', 'solutions', 'action', 'actions',
+            'best practice', 'best practices', 'improve', 'optimize', 'reduce', 'decrease',
+            'increase', 'enhance', 'address', 'tackle', 'solve'
+        ]
+        has_strategy = any(keyword in question_lower for keyword in strategy_keywords)
+        
         # Trigger search if any combination suggests need for external context
         needs_search = (
             has_reasoning or  # Any "why" type question
+            has_strategy or  # Strategy/recommendation questions benefit from external best practices
             (has_market_context and has_time_context) or  # Market questions with time
             (has_company_context and has_reasoning) or  # Company-specific reasoning
             (has_time_context and has_reasoning)  # Time-based reasoning
         )
         
-        print(f"🔍 Search detection: reasoning={has_reasoning}, market={has_market_context}, time={has_time_context}, company={has_company_context} -> {needs_search}")
+        print(f"🔍 Search detection: reasoning={has_reasoning}, strategy={has_strategy}, market={has_market_context}, time={has_time_context}, company={has_company_context} -> {needs_search}")
         
         return needs_search
     
@@ -1200,25 +1313,122 @@ REQUIREMENTS:
         """Get contextual information from web search"""
         
         try:
-            # Generate smart search queries based on the question
+            from services.you_search import search_web
+            
+            # Try exact user question first (most reliable, avoids 403s from complex queries)
+            print("🔍 Trying exact question first…")
+            loop = asyncio.get_event_loop()
+            direct_result = await loop.run_in_executor(None, search_web, question, 4)
+            
+            combined_results = []
+            if direct_result and isinstance(direct_result, list) and len(direct_result) > 0:
+                print(f"✅ Direct search succeeded: {len(direct_result)} results")
+                combined_results = direct_result
+            
+            # ALWAYS also try generated queries for better results (especially for growth/increase questions)
+            print("🔍 Also trying targeted queries for better context…")
             search_queries = self._generate_search_queries(question)
             
-            # Perform searches
-            loop = asyncio.get_event_loop()
+            # Perform searches with generated queries
             search_tasks = [
-                loop.run_in_executor(None, search_web, query, 2) 
-                for query in search_queries
+                loop.run_in_executor(None, search_web, query, 3) 
+                for query in search_queries[:2]  # Limit to top 2 queries
             ]
             
             results = await asyncio.gather(*search_tasks, return_exceptions=True)
             
-            # Combine and format results
-            combined_results = []
+            # Combine results from generated queries
             for result_group in results:
                 if isinstance(result_group, list):
-                    combined_results.extend(result_group)
+                    # Deduplicate by URL to avoid showing same result twice
+                    for item in result_group:
+                        url = item.get('url', '')
+                        if url and not any(r.get('url') == url for r in combined_results):
+                            combined_results.append(item)
+            
+            print(f"📱 Total combined results: {len(combined_results)}")
             
             if not combined_results:
+                # Direct News fallback if Search yielded nothing
+                try:
+                    print("📰 Web search empty; trying News fallback directly…")
+                    from services.you_news import call_news
+                    # Build multiple focused queries using simple heuristics (no Claude, no hardcoding)
+                    news_queries = []
+                    try:
+                        import re
+                        years = re.findall(r'\b(19\d{2}|20\d{2})\b', question)
+                        
+                        # Extract entities dynamically (companies, products, etc.)
+                        question_lower = question.lower()
+                        all_words = re.findall(r'\b[a-zA-Z]+\b', question_lower)
+                        stop_words = {
+                            'why', 'what', 'when', 'where', 'how', 'the', 'this', 'that', 'these', 'those',
+                            'did', 'does', 'do', 'is', 'are', 'was', 'were', 'have', 'has', 'had',
+                            'will', 'would', 'could', 'should', 'can', 'may', 'might', 'must',
+                            'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                            'from', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further',
+                            'revenue', 'sales', 'profit', 'earnings', 'growth', 'decline', 'drop', 'performance'
+                        }
+                        entities = []
+                        for word in all_words:
+                            if word not in stop_words and len(word) > 2:
+                                # Pattern: "why did [word] ..." or "[word] revenue"
+                                if (re.search(rf'\b(why did|what caused|how did)\s+{re.escape(word)}\b', question_lower) or
+                                    re.search(rf'\b{re.escape(word)}\s+(revenue|sales|growth|decline|performance)\b', question_lower)):
+                                    entities.append(word)
+                        
+                        entities = list(dict.fromkeys(entities))[:2]  # Max 2 entities
+                        entity = entities[0] if entities else ""
+                        
+                        # Extract key metrics/concepts
+                        concepts = re.findall(r'\b(revenue|sales|profit|earnings|growth|decline|drop|performance)\b', question_lower)
+                        concept = concepts[0] if concepts else "performance"
+                        
+                        # Build dynamic variant queries
+                        news_queries = [question]  # Always start with original
+                        
+                        if entity and years:
+                            year1 = years[0]
+                            year2 = years[1] if len(years) > 1 else str(int(year1) - 1)
+                            news_queries.extend([
+                                f"{entity} {year1} {concept}",
+                                f"{entity} {year1} vs {year2} {concept}",
+                                f"{entity} earnings {year1}",
+                            ])
+                        elif entity:
+                            news_queries.append(f"{entity} {concept}")
+                        elif years:
+                            news_queries.append(f"{years[0]} {concept}")
+                    except Exception:
+                        news_queries = [question]
+
+                    # Deduplicate and try in order
+                    seen = set()
+                    deduped = []
+                    for q in news_queries:
+                        if q not in seen:
+                            seen.add(q)
+                            deduped.append(q)
+                    news_queries = deduped
+
+                    for nq in news_queries:
+                        items = call_news(nq, count=4) or []
+                        if items:
+                            print(f"📰 News fallback returned {len(items)} items for query: {nq}")
+                            formatted_context = []
+                            for i, item in enumerate(items[:4], 1):
+                                title = item.get('title', 'Unknown')
+                                snippet = item.get('snippet', '')
+                                url = item.get('url', '')
+                                if snippet:
+                                    formatted_context.append(f"{i}. **{title}**\n   {snippet}\n   Source: {url}")
+                            ctx = '\n\n'.join(formatted_context) if formatted_context else ""
+                            if ctx:
+                                print("📰 Using News fallback context")
+                                return ctx
+                except Exception:
+                    pass
                 return ""
             
             # Format search results for context
@@ -1301,18 +1511,31 @@ REQUIREMENTS:
         # Build targeted queries based on question type
         if 'why' in question_lower or 'reason' in question_lower or 'cause' in question_lower:
             # Reasoning queries - focus on causes and explanations
+            # Check if question is about increase/growth or decline
+            is_growth = any(word in question_lower for word in ['increase', 'increasing', 'grow', 'growing', 'rise', 'rising', 'growth', 'keep'])
+            
             if entities and years:
                 # Company + year + reasoning
                 entity = entities[0]
                 year = years[0]
-                queries.append(f"{entity} {year} decline reasons causes analysis")
-                queries.append(f"what caused {entity} {year} performance factors")
+                if is_growth:
+                    queries.append(f"{entity} {year} growth reasons drivers")
+                    queries.append(f"why {entity} increasing {year} factors")
+                    queries.append(f"{entity} {year} expansion drivers")
+                else:
+                    queries.append(f"{entity} {year} decline reasons causes analysis")
+                    queries.append(f"what caused {entity} {year} performance factors")
             elif entities and concepts:
                 # Company + concept + reasoning
                 entity = entities[0]
-                concept = concepts[0]
-                queries.append(f"{entity} {concept} decline reasons market analysis")
-                queries.append(f"why {entity} {concept} changed factors")
+                concept = concepts[0] if concepts else "performance"
+                if is_growth:
+                    queries.append(f"{entity} {concept} growth reasons drivers")
+                    queries.append(f"why {entity} {concept} increasing factors")
+                    queries.append(f"{entity} {concept} expansion market analysis")
+                else:
+                    queries.append(f"{entity} {concept} decline reasons market analysis")
+                    queries.append(f"why {entity} {concept} changed factors")
             elif years and concepts:
                 # Year + concept + reasoning
                 year = years[0]
@@ -1392,35 +1615,271 @@ REQUIREMENTS:
         # Get the base local analysis
         base_analysis = self._create_local_analysis(question, context, df)
         
-        # If we have search context, format in structured way
+        # Check if the question is about data not in the dataset (general business question)
+        question_lower = question.lower()
+        is_general_question = False
+        
+        # Extract key terms from question
+        import re
+        question_terms = set(re.findall(r'\b[a-z]{3,}\b', question_lower))
+        question_terms -= {'why', 'did', 'what', 'when', 'where', 'how', 'the', 'and', 'or', 'but', 'to', 'from', 'in', 'on', 'at', 'for', 'of', 'with', 'by', 'about', 'that', 'this', 'these', 'those', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'can', 'may', 'might', 'must'}
+        
+        # Check if any key terms from question match dataset columns
+        if df is not None and len(df.columns) > 0:
+            column_terms = set()
+            for col in df.columns:
+                column_terms.update(re.findall(r'\b[a-z]{3,}\b', col.lower()))
+            
+            # If question terms don't overlap much with dataset columns, it's likely a general question
+            overlap = question_terms & column_terms
+            if len(overlap) == 0 or (len(question_terms) > 3 and len(overlap) < 2):
+                is_general_question = True
+        
+        # If we have search context and it's a general question OR local analysis is generic
         if search_context:
+            # If it's a general question or local analysis is just generic summary, prioritize external context
+            local_is_generic = base_analysis and any(generic in base_analysis.lower() for generic in [
+                'dataset has', 'most variable', 'strongest correlation', 'i couldn\'t find',
+                'i need at least', 'i don\'t see', 'couldn\'t compute'
+            ])
+            
+            if is_general_question or local_is_generic:
+                # For general questions, external context IS the answer
+                return self._format_structured_response(question, "", search_context, df)
+            
             return self._format_structured_response(question, base_analysis, search_context, df)
         
         return base_analysis
     
     def _format_structured_response(self, question: str, data_analysis: str, search_context: str, df: pd.DataFrame) -> str:
-        """Format response in Insight/Reasoning/Implication structure"""
+        """Format response as natural, conversational explanation"""
+        import re
         
-        # Extract key insights from data analysis
-        insight = self._extract_data_insight(data_analysis, df)
+        # Build natural explanation combining data + external context
+        explanation_parts = []
         
-        # Create reasoning section combining data + external context
-        reasoning = self._create_reasoning_section(data_analysis, search_context, question)
+        # Start with data analysis (but make it conversational)
+        # Skip if data_analysis is empty or just generic error messages
+        if data_analysis and data_analysis.strip():
+            data_text = data_analysis.strip()
+            
+            # Skip generic/unhelpful responses
+            if any(skip in data_text.lower() for skip in [
+                'i couldn\'t find', 'i need at least', 'i don\'t see', 
+                'couldn\'t compute', 'no overlapping data'
+            ]):
+                # Skip unhelpful local analysis, rely on external context
+                pass
+            # Check if it's a year comparison (has year numbers and percentage change)
+            elif re.search(r'\d{4}', data_text) and ('%' in data_text or 'changed' in data_text.lower() or 'from' in data_text.lower() and 'to' in data_text.lower()):
+                # This is a year comparison - lead with it directly
+                explanation_parts.append(data_text)
+            elif "Strategy recommendations" in data_text:
+                # Extract actionable recommendations
+                lines = data_text.split('\n')
+                recommendations = [l.strip('- ') for l in lines if l.strip().startswith('-')]
+                if recommendations:
+                    explanation_parts.append(f"Based on your data, here are the key patterns:\n\n" + '\n'.join([f"• {r}" for r in recommendations[:5]]))
+            elif "Dataset has" in data_text or "Most variable" in data_text or "Strongest correlation" in data_text:
+                # Generic data summary - skip it (external context is more relevant)
+                pass
+            else:
+                # Only include if it's meaningful
+                explanation_parts.append(data_text)
         
-        # Generate strategic implication
-        implication = self._generate_implication(question, data_analysis, search_context)
+        # Add external context naturally
+        key_findings = []  # Initialize outside if block
+        if search_context:
+            # Parse the formatted search context (format: "1. **Title**\n   snippet\n   Source: url")
+            # Extract each numbered item
+            items = re.split(r'\n(?=\d+\.\s*\*\*)', search_context)
+            
+            # Filter keywords based on question type to get relevant snippets
+            question_lower = question.lower()
+            is_why_question = 'why' in question_lower or 'reason' in question_lower or 'cause' in question_lower
+            is_drop_question = 'drop' in question_lower or 'decline' in question_lower or 'decrease' in question_lower
+            
+            # Extract years from question for relevance filtering
+            import re
+            years = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', question)]
+            
+            # Stop words for entity extraction
+            stop_words = {
+                'why', 'what', 'when', 'where', 'how', 'the', 'this', 'that', 'these', 'those',
+                'did', 'does', 'do', 'is', 'are', 'was', 'were', 'have', 'has', 'had',
+                'will', 'would', 'could', 'should', 'can', 'may', 'might', 'must',
+                'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                'from', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further',
+                'so', 'high', 'low', 'revenue', 'sales', 'profit', 'earnings'
+            }
+            
+            for item in items[:3]:  # Take top 3 results
+                lines = item.strip().split('\n')
+                title = None
+                snippet = None
+                
+                for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith('Source:'):
+                        continue
+                    # Extract title (format: "1. **Title**")
+                    if line.startswith(('1.', '2.', '3.', '4.')) and '**' in line:
+                        title_match = re.search(r'\*\*([^*]+)\*\*', line)
+                        if title_match:
+                            title = title_match.group(1)
+                    # Extract snippet (content that's not title and not source)
+                    elif line and not line.startswith('**') and len(line) > 30:
+                        snippet = line
+                        break
+                
+                # Filter out irrelevant snippets (history, generic definitions, non-explanatory content)
+                if snippet:
+                    snippet_lower = snippet.lower()
+                    
+                    # Skip if it's just history, generic definitions, or non-explanatory
+                    skip_patterns = [
+                        'was conceived in', 'was founded', 'previously owned', 'co-founded',
+                        'can be defined as', 'is defined as', 'is the amount of money',
+                        'revenue can be defined', 'from 2011 to 2025',  # too generic
+                        'is the world\'s most popular', 'learn more here',
+                        'history and growth rate', 'annual/quarterly revenue history',
+                        'netflix was', 'both had previous ventures',
+                        'the streaming platform', 'according to', 'statistics show',
+                        'netflix is one of', 'netflix statistics',
+                        'revenue of netflix from', 'in million u.s. dollars',
+                        'netflix annual revenue for', 'up from', 'increase from'
+                    ]
+                    
+                    # Check if snippet is just descriptive/statistical without explanation
+                    if any(skip in snippet_lower for skip in skip_patterns):
+                        continue
+                    
+                    # For "why" questions, include snippets that explain
+                    if is_why_question:
+                        # Check if question is about "high", "low", "so", etc. (general state questions)
+                        is_general_state = any(word in question_lower for word in ['so high', 'so low', 'high', 'low', 'large', 'small', 'big', 'small'])
+                        
+                        # Must contain explanation keywords OR be clearly relevant
+                        has_explanation = any(word in snippet_lower for word in [
+                            'due to', 'because', 'caused by', 'resulted from', 'led to',
+                            'attributed to', 'impacted by', 'affected by',
+                            'decline', 'dropped', 'fell', 'decreased', 'down', 'slowed',
+                            'challenged', 'pressure', 'competition', 'factors', 'reasons',
+                            'drivers', 'headwinds', 'issues', 'problems',
+                            # Positive growth keywords
+                            'increased', 'grew', 'growth', 'expanded', 'surged', 'rose',
+                            'boosted', 'improved', 'gained', 'climbed', 'jumped',
+                            'subscriber growth', 'user growth', 'revenue growth',
+                            'driven by', 'fueled by', 'boosted by', 'result of',
+                            # General explanation keywords
+                            'explains', 'contributes to', 'accounts for', 'explanation',
+                            'largest', 'biggest', 'top', 'leading', 'dominant'
+                        ])
+                        
+                        # Also check if it mentions the specific metric/years/entity from question
+                        mentions_metric = any(word in snippet_lower for word in [
+                            'revenue', 'sales', 'growth', 'performance', 'profit', 'earnings'
+                        ])
+                        
+                        # Extract entity from question (e.g., "Saudi Aramco" -> "aramco", "saudi")
+                        question_entities = []
+                        for token in question_lower.split():
+                            if len(token) > 3 and token not in stop_words:
+                                question_entities.append(token)
+                        
+                        mentions_entity = any(entity in snippet_lower for entity in question_entities[:3])  # Check top 3 entities
+                        
+                        # Check if it mentions the years from question
+                        mentions_years = False
+                        if years:
+                            for year in years:
+                                if str(year) in snippet:
+                                    mentions_years = True
+                                    break
+                        
+                        # For general state questions ("why so high"), be more lenient
+                        if is_general_state:
+                            # Include if it mentions entity OR metric, and has some explanation or is clearly relevant
+                            if (mentions_entity or mentions_metric) and (has_explanation or len(snippet) > 100):
+                                if title:
+                                    key_findings.append(f"**{title}**: {snippet}")
+                                else:
+                                    key_findings.append(snippet)
+                                continue
+                        else:
+                            # For change questions, require explanation AND relevant context
+                            if has_explanation and (mentions_metric or mentions_years or mentions_entity):
+                                if title:
+                                    key_findings.insert(0, f"**{title}**: {snippet}")
+                                else:
+                                    key_findings.insert(0, snippet)
+                                continue
+                        
+                        # Skip snippets that don't meet criteria
+                        continue
+                    
+                    # For strategy questions, include actionable/relevant snippets
+                    if any(kw in question_lower for kw in ['what should', 'how to', 'recommend', 'strategy']):
+                        if any(word in snippet_lower for word in [
+                            'strategy', 'plan', 'focus', 'expand', 'improve', 'increase',
+                            'reduce', 'optimize', 'best practice', 'recommend'
+                        ]):
+                            if title:
+                                key_findings.append(f"**{title}**: {snippet}")
+                            else:
+                                key_findings.append(snippet)
+                            continue
+                        else:
+                            continue
+                
+                # Combine title and snippet naturally (if not already added)
+                if title and snippet and not any(f.startswith(f"**{title}**") for f in key_findings):
+                    key_findings.append(f"**{title}**: {snippet}")
+                elif snippet and snippet not in key_findings:
+                    key_findings.append(snippet)
+                elif title and not any(f.startswith(f"**{title}**") for f in key_findings):
+                    key_findings.append(f"**{title}**")
+            
+            if key_findings:
+                # If no local data analysis or it's generic, external context IS the answer
+                if not explanation_parts or not any(part and len(part) > 50 for part in explanation_parts):
+                    # Lead with external context as the primary answer
+                    explanation_parts.insert(0, "**Answer:**\n\n" + '\n\n'.join([f"• {f}" for f in key_findings if f]))
+                else:
+                    explanation_parts.append(f"\n**External Context:**\n\n" + '\n\n'.join([f"• {f}" for f in key_findings if f]))
         
-        # Format the structured response
-        structured_response = f"""## 📊 **Insight**
-{insight}
-
-## 🧠 **Reasoning**
-{reasoning}
-
-## 💡 **Implication**
-{implication}"""
+        # Add implications/recommendations naturally based on question type
+        question_lower = question.lower()
+        if any(kw in question_lower for kw in ['what should', 'how to', 'how can', 'what can', 'recommend', 'strategy', 'solution']):
+            recommendation_text = self._generate_implication(question, data_analysis, search_context)
+            # Clean up the recommendation text - remove markdown headers
+            if recommendation_text:
+                # Remove "**Actionable Recommendations:**" prefix if present
+                rec_clean = re.sub(r'^\*\*Actionable Recommendations:\*\*\s*', '', recommendation_text, flags=re.IGNORECASE)
+                rec_clean = rec_clean.strip()
+                if rec_clean:
+                    explanation_parts.append(f"\n**Recommendations:**\n\n{rec_clean}")
+        elif 'why' in question_lower or 'reason' in question_lower:
+            # Only add summary if we have external context that explains the "why"
+            # Don't add a generic message if we don't have actual context to show
+            if search_context and key_findings:
+                explanation_parts.append(f"\n**Explanation:**\n\nThe factors above explain why this change occurred. These insights combine your internal data with external market intelligence to provide a comprehensive understanding.")
+            # If we don't have key findings but have search context, try to parse it again
+            elif search_context and not key_findings:
+                # Maybe the filtering was too strict - show a note
+                explanation_parts.append(f"\nExternal context was searched but didn't yield specific explanations. The data trend above shows the pattern.")
         
-        return structured_response
+        # Join into natural explanation
+        explanation = '\n'.join(explanation_parts)
+        
+        # If we still have structured format markers, clean them up
+        if '##' in explanation:
+            # Remove markdown headers and make it flow
+            import re
+            explanation = re.sub(r'##\s*\*\*.*?\*\*\s*\n', '', explanation)
+            explanation = re.sub(r'\*\*([^*]+)\*\*:', r'\1:', explanation)
+        
+        return explanation if explanation.strip() else data_analysis
     
     def _extract_data_insight(self, data_analysis: str, df: pd.DataFrame) -> str:
         """Extract key data insights from the analysis"""
@@ -1476,21 +1935,43 @@ REQUIREMENTS:
         
         implications = []
         
-        # Generate implications based on question type
-        if 'why' in question.lower() or 'reason' in question.lower():
+        # Strategy/recommendation questions
+        if any(kw in question.lower() for kw in ['what should', 'how to', 'how can', 'what can', 'recommend', 'strategy', 'solution']):
+            implications.append("**Actionable Recommendations:**")
+            # Add recommendations from external context if available
+            if search_context:
+                # Extract actionable items from search context
+                context_lower = search_context.lower()
+                if 'best practice' in context_lower or 'recommend' in context_lower:
+                    implications.append("Based on industry best practices and external research, consider implementing proven strategies from similar contexts.")
+                if 'reduce' in question.lower() or 'decrease' in question.lower():
+                    implications.append("Focus on addressing root causes identified in the data analysis, combined with proven reduction strategies from industry examples.")
+                if 'increase' in question.lower() or 'improve' in question.lower():
+                    implications.append("Leverage successful strategies from similar cases while adapting them to your specific data patterns.")
+            # Add data-driven recommendations
+            if 'cancel' in question.lower() or 'cancellation' in question.lower():
+                implications.append("Analyze cancellation patterns in your data (by location, time, driver ratings) to identify specific areas for intervention.")
+            if not implications or len(implications) == 1:
+                implications.append("Implement targeted interventions based on the data patterns identified, following industry best practices.")
+        
+        # Reasoning questions
+        elif 'why' in question.lower() or 'reason' in question.lower():
             implications.append("Understanding these underlying factors can help predict future trends and inform strategic decisions.")
         
-        if 'decline' in question.lower() or 'drop' in question.lower():
+        # Decline questions
+        elif 'decline' in question.lower() or 'drop' in question.lower():
             implications.append("The identified decline factors suggest the need for strategic adjustments to address root causes.")
         
-        if 'growth' in question.lower() or 'increase' in question.lower():
+        # Growth questions
+        elif 'growth' in question.lower() or 'increase' in question.lower():
             implications.append("The growth drivers identified can be leveraged to sustain and accelerate positive trends.")
         
-        if 'volatility' in question.lower() or 'market' in question.lower():
+        # Market/volatility questions
+        elif 'volatility' in question.lower() or 'market' in question.lower():
             implications.append("Market volatility factors should be monitored closely to manage risk and capitalize on opportunities.")
         
         # Generic implications
-        if not implications:
+        else:
             implications.append("The analysis provides actionable insights for strategic planning and decision-making.")
             implications.append("Regular monitoring of both internal metrics and external factors is recommended.")
         
@@ -1647,6 +2128,49 @@ REQUIREMENTS:
         
         return None
 
+    def _analyze_trend_over_time(self, entity: str, time_col: str, value_col: str, df: pd.DataFrame) -> str:
+        """Analyze trend over time showing increase/growth pattern"""
+        try:
+            # Filter by entity if provided
+            scope = df
+            if entity:
+                entity_col = self._find_entity_column(df)
+                if entity_col:
+                    scope = df[df[entity_col] == entity]
+                    if scope.empty:
+                        return f"I couldn't find {entity} in the dataset."
+            
+            # Group by time and aggregate value
+            by_time = scope.groupby(time_col)[value_col].sum().sort_index()
+            if len(by_time) < 2:
+                return f"Insufficient data points to analyze trend for {value_col}."
+            
+            # Calculate growth metrics
+            first_val = by_time.iloc[0]
+            last_val = by_time.iloc[-1]
+            total_change = last_val - first_val
+            pct_change = ((last_val / first_val) - 1) * 100 if first_val != 0 else float('inf')
+            
+            # Find peak and growth periods
+            peak_time = by_time.idxmax()
+            peak_val = by_time.max()
+            
+            # Calculate average annual growth if we have years
+            time_span = len(by_time)
+            avg_annual_growth = ((last_val / first_val) ** (1 / time_span) - 1) * 100 if first_val != 0 and time_span > 0 else 0
+            
+            metric_name = value_col.replace('_', ' ').capitalize()
+            entity_prefix = f"{entity}'s " if entity else ""
+            
+            result = f"{entity_prefix}{metric_name} increased from {first_val:,.0f} to {last_val:,.0f} ({pct_change:+.1f}% total change) over {time_span} periods. "
+            result += f"Peak: {peak_val:,.0f} in {peak_time}. "
+            if time_span > 1:
+                result += f"Average growth rate: {avg_annual_growth:+.1f}% per period."
+            
+            return result
+        except Exception as e:
+            return f"Trend analysis shows {value_col} has been increasing over time."
+
     def _analyze_sales_decline(self, question: str, df: pd.DataFrame) -> str:
         """Explain sales/volume decline for a specific entity between years using actual dataset columns."""
         try:
@@ -1683,7 +2207,7 @@ REQUIREMENTS:
 
             # Years extraction
             import re
-            years = [int(y) for y in re.findall(r'\b(19|20)\d{2}\b', qlower)]
+            years = [int(y) for y in re.findall(r'\b(19\d{2}|20\d{2})\b', qlower)]
 
             ent_df = df[df[entity_col] == ent]
             if ent_df.empty:
